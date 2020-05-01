@@ -229,8 +229,7 @@ namespace photonmap
                 {  // 屈折と反射の両方を追跡
                     return now_object.emission +
                            multiply(now_object.color,
-                                    photonmap_radiance(reflection_ray, sampler01, depth + 1,
-                                     photon_map, gather_radius,
+                                    photonmap_radiance(reflection_ray, sampler01, depth + 1, photon_map, gather_radius,
                                                        gahter_max_photon_num) *
                                             Re +
                                         photonmap_radiance(refraction_ray, sampler01, depth + 1, photon_map,
@@ -509,7 +508,6 @@ namespace photonmap
         //         }
         //     }
         // }
-
 
         // 出力
         //        save_ppm_file(std::string("image.ppm"), image, width, height);
