@@ -13,6 +13,10 @@
 #include <string>
 #include <vector>
 
+#include "intersection.h"
+#include "sampler/value_sampler.h"
+#include "scene.h"
+
 namespace photonmap_sample
 {
     const double PI = 3.14159265358979323846;
@@ -254,17 +258,31 @@ namespace photonmap_sample
 
     // *** レンダリングするシーンデータ ****
     // from smallpt
+    // Sphere spheres[] = {
+    //     Sphere(5.0, Vec(50.0, 75.0, 81.6), Color(12, 12, 12), Color(), DIFFUSE),             //照明
+    //     Sphere(1e5, Vec(1e5 + 1, 40.8, 81.6), Color(), Color(0.75, 0.25, 0.25), DIFFUSE),    // 左
+    //     Sphere(1e5, Vec(-1e5 + 99, 40.8, 81.6), Color(), Color(0.25, 0.25, 0.75), DIFFUSE),  // 右
+    //     Sphere(1e5, Vec(50, 40.8, 1e5), Color(), Color(0.75, 0.75, 0.75), DIFFUSE),          // 奥
+    //     Sphere(1e5, Vec(50, 40.8, -1e5 + 170), Color(), Color(), DIFFUSE),                   // 手前
+    //     Sphere(1e5, Vec(50, 1e5, 81.6), Color(), Color(0.75, 0.75, 0.75), DIFFUSE),          // 床
+    //     Sphere(1e5, Vec(50, -1e5 + 81.6, 81.6), Color(), Color(0.75, 0.75, 0.75), DIFFUSE),  // 天井
+    //     Sphere(16.5, Vec(27, 16.5, 47), Color(), Color(1, 1, 1) * .99, SPECULAR),            // 鏡
+    //     Sphere(16.5, Vec(73, 16.5, 78), Color(), Color(1, 1, 1) * .99, REFRACTION),          //ガラス
+    // };
+
     Sphere spheres[] = {
-        Sphere(5.0, Vec(50.0, 75.0, 81.6), Color(12, 12, 12), Color(), DIFFUSE),             //照明
+        Sphere(5, Vec(50.0, 75.0, 81.6), Color(36, 36, 36), Color(), DIFFUSE),               //照明
         Sphere(1e5, Vec(1e5 + 1, 40.8, 81.6), Color(), Color(0.75, 0.25, 0.25), DIFFUSE),    // 左
         Sphere(1e5, Vec(-1e5 + 99, 40.8, 81.6), Color(), Color(0.25, 0.25, 0.75), DIFFUSE),  // 右
         Sphere(1e5, Vec(50, 40.8, 1e5), Color(), Color(0.75, 0.75, 0.75), DIFFUSE),          // 奥
-        Sphere(1e5, Vec(50, 40.8, -1e5 + 170), Color(), Color(), DIFFUSE),                   // 手前
+        Sphere(1e5, Vec(50, 40.8, -1e5 + 250), Color(), Color(), DIFFUSE),                   // 手前
         Sphere(1e5, Vec(50, 1e5, 81.6), Color(), Color(0.75, 0.75, 0.75), DIFFUSE),          // 床
         Sphere(1e5, Vec(50, -1e5 + 81.6, 81.6), Color(), Color(0.75, 0.75, 0.75), DIFFUSE),  // 天井
-        Sphere(16.5, Vec(27, 16.5, 47), Color(), Color(1, 1, 1) * .99, SPECULAR),            // 鏡
-        Sphere(16.5, Vec(73, 16.5, 78), Color(), Color(1, 1, 1) * .99, REFRACTION),          //ガラス
+        Sphere(20, Vec(65, 20, 20), Color(), Color(0.25, 0.75, 0.25), DIFFUSE),              // 緑球
+        Sphere(16.5, Vec(27, 16.5, 47), Color(), Color(0.99, 0.99, 0.99), SPECULAR),         // 鏡
+        Sphere(16.5, Vec(77, 16.5, 78), Color(), Color(0.99, 0.99, 0.99), REFRACTION),       //ガラス
     };
+
     const int LightID = 0;
 
     // *** レンダリング用関数 ***
@@ -593,6 +611,182 @@ namespace photonmap_sample
         return Color();
     }
 
+    // コサイン項によるImportance Sampling
+    decltype(auto) cosine_sampling(const Vec &w, const Vec &u, const Vec &v, ValueSampler<double> &sampler01)
+    {
+        const double u1 = 2 * M_PI * sampler01.sample();
+        const double u2 = sampler01.sample();
+        const double u3 = std::sqrt(u2);
+        return Normalize((u * std::cos(u1) * u3 + v * std::sin(u1) * u3 + w * std::sqrt(1.0 - u2)));
+    }
+    // 球の１点をサンプリング
+    decltype(auto) sphere_sampling(ValueSampler<double> &sampler01)
+    {
+        const double r1 = 2 * M_PI * sampler01.sample();
+        const double r2 = 1.0 - 2.0 * sampler01.sample();
+        const double r3 = 1.0 - r2 * r2;
+        return Vec(std::sqrt(r3) * std::cos(r1), std::sqrt(r3) * std::sin(r1), r2);
+    }
+
+    void create_photonmap(const int photon_count, PhotonMap *photon_map, const Sphere &light_sphere)
+    {
+        ValueSampler<double> sampler01(0, 1);
+        for (int i = 0; i < photon_count; i++)
+        {
+            // 光源からフォトンを発射する
+            // 光源は球。球の一点をサンプリングする
+            const double r1 = 2 * M_PI * sampler01.sample();
+            const double r2 = 1.0 - 2.0 * sampler01.sample();
+            const double r3 = 1.0 - r2 * r2;
+
+            const Vec source_pos = light_sphere.position + ((light_sphere.radius + EPS) * sphere_sampling(sampler01));
+            const Vec source_dir = Normalize(source_pos - light_sphere.position);
+
+            // 光源上の点から半球サンプリングする
+            Vec w, u, v;
+            w = source_dir;
+
+            if (fabs(w.x) > 0.1)
+            {
+                u = Normalize(Cross(Vec(0.0, 1.0, 0.0), w));
+            }
+            else
+            {
+                u = Normalize(Cross(Vec(1.0, 0.0, 0.0), w));
+            }
+            v = Cross(w, u);
+
+            Vec light_dir = cosine_sampling(w, u, v, sampler01);
+
+            Ray current_ray(source_pos, light_dir);
+
+            Color current_flux = light_sphere.emission * 4.0 * std::pow(light_sphere.radius * M_PI, 2.0) / photon_count;
+
+            bool trace_end = false;
+            while (!trace_end)
+            {
+                if (std::max(current_flux.x, std::max(current_flux.y, current_flux.z)) <= 0.0) break;
+
+                double t;  // レイからシーンの交差位置までの距離
+                int id;    // 交差したシーン内オブジェクトのID
+                if (!intersect_scene(current_ray, &t, &id)) break;
+                const Sphere &obj = spheres[id];
+
+                const Vec hitpoint = current_ray.org + t * current_ray.dir;  // 交差位置
+                const Vec normal = Normalize(hitpoint - obj.position);       // 交差位置の法線
+                const Vec orienting_normal = Dot(normal, current_ray.dir) < 0.0
+                                                 ? normal
+                                                 : (-1.0 * normal);  // 交差位置の法線（物体からのレイの入出を考慮）
+
+                switch (obj.ref_type)
+                {
+                    case DIFFUSE:
+                    {
+                        // 拡散面なのでフォトンをフォトンマップに格納する
+                        photon_map->AddPoint(Photon(hitpoint, current_flux, current_ray.dir));
+
+                        // A Practical Guide to Global Illumination using Photon Mapsとは異なるが
+                        // RGBの平均値を反射確率とする。
+                        // TODO: Depthに応じて上げたい
+                        const double probability = (obj.color.x + obj.color.y + obj.color.z) / 3;
+                        if (probability > sampler01.sample())
+                        {
+                            // 反射
+                            // orienting_normalの方向を基準とした正規直交基底(w, u,
+                            // v)を作り。この基底に対する半球内で次のレイを飛ばす。
+                            Vec diffuse_w, diffuse_u, diffuse_v;
+                            diffuse_w = orienting_normal;
+                            if (fabs(diffuse_w.x) > 0.1)
+                            {
+                                diffuse_u = Normalize(Cross(Vec(0.0, 1.0, 0.0), diffuse_w));
+                            }
+                            else
+                            {
+                                diffuse_u = Normalize(Cross(Vec(1.0, 0.0, 0.0), diffuse_w));
+                            }
+                            diffuse_v = Cross(diffuse_w, diffuse_u);
+                            Vec dir = cosine_sampling(diffuse_w, diffuse_u, diffuse_v, sampler01);
+
+                            current_ray = Ray(hitpoint, dir);
+                            current_flux = Multiply(current_flux, obj.color) / probability;
+                        }
+                        else
+                        {  // 吸収
+                            trace_end = true;
+                        }
+                    }
+                    break;
+                    case SPECULAR:
+                    {
+                        // 完全鏡面
+                        current_ray = Ray(hitpoint, current_ray.dir - hitpoint * 2.0 * Dot(hitpoint, current_ray.dir));
+                        current_flux = Multiply(current_flux, obj.color);
+                    }
+                    break;
+                    case REFRACTION:
+                    {
+                        // 屈折
+                        Ray reflection_ray =
+                            Ray(hitpoint, current_ray.dir - hitpoint * 2.0 * Dot(hitpoint, current_ray.dir));
+                        // レイの屈折方向がオブジェクトの内側方向か外側方向かを確認する
+                        const bool is_into =
+                            Dot(normal, orienting_normal) > 0.0;  // レイがオブジェクトから出るのか、入るのか
+
+                        // Snellの法則
+                        const double nc = 1.0;  // 真空の屈折率
+                        // edupt::kIor オブジェクトの屈折率
+                        const double nnt = is_into ? nc / edupt::kIor : edupt::kIor / nc;
+                        const double ddn = Dot(current_ray.dir, orienting_normal);
+                        const double cos2t = 1.0 - nnt * nnt * (1.0 - ddn * ddn);
+
+                        if (cos2t < 0.0)
+                        {  // 全反射
+                            current_ray = reflection_ray;
+                            current_flux = Multiply(current_flux, obj.color);
+                            continue;
+                        }
+                        // 屈折していく方向
+                        Vec tdir = Normalize(current_ray.dir * nnt -
+                                             normal * (is_into ? 1.0 : -1.0) * (ddn * nnt + std::sqrt(cos2t)));
+
+                        // SchlickによるFresnelの反射係数の近似
+                        const double a = edupt::kIor - nc, b = edupt::kIor + nc;
+                        const double R0 = (a * a) / (b * b);
+                        const double c = 1.0 - (is_into ? -ddn : Dot(tdir, normal));
+                        const double Re = R0 + (1.0 - R0) * pow(c, 5.0);
+                        const double Tr = 1.0 - Re;  // 屈折光の運ぶ光の量
+                        const double probability = Re;
+
+                        // 屈折と反射のどちらか一方を追跡する。
+                        // ロシアンルーレットで決定する。
+                        if (sampler01.sample() < probability)
+                        {  // 反射
+                            current_ray = reflection_ray;
+                            // Fresnel係数Reを乗算し、ロシアンルーレット確率prob.で割る。
+                            // 今、prob.=Reなので Re / prob. = 1.0 となる。
+                            // よって、current_flux = Multiply(current_flux, obj.color) * Re / probability;
+                            // が以下の式になる。 屈折の場合も同様。
+                            current_flux = Multiply(current_flux, obj.color);
+                            continue;
+                        }
+                        else
+                        {  // 屈折
+                            current_ray = Ray(hitpoint, tdir);
+                            current_flux = Multiply(current_flux, obj.color);
+                            continue;
+                        }
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        std::cout << "Done. (" << photon_map->Size() << " photons are stored)" << std::endl;
+        std::cout << "Creating KD-tree..." << std::endl;
+        photon_map->CreateKDtree();
+        std::cout << "Done." << std::endl;
+    }
     // *** .hdrフォーマットで出力するための関数 ***
     struct HDRPixel
     {
@@ -676,7 +870,7 @@ namespace photonmap_sample
     {
         int width = 640;
         int height = 480;
-        int photon_num = 5000;
+        int photon_num = 500000;
         double gather_photon_radius = 32.0;
         int gahter_max_photon_num = 64;
 
@@ -690,37 +884,86 @@ namespace photonmap_sample
         // フォトンマップ構築
         PhotonMap photon_map;
         create_photon_map(photon_num, &photon_map);
+        // create_photonmap(photon_num, &photon_map, spheres[LightID]);
 
-        // #pragma omp parallel for schedule(dynamic, 1)
+        // // #pragma omp parallel for schedule(dynamic, 1)
+        // for (int y = 0; y < height; y++)
+        // {
+        //     std::cerr << "Rendering " << (100.0 * y / (height - 1)) << "%" << std::endl;
+        //     srand(y * y * y);
+        //     for (int x = 0; x < width; x++)
+        //     {
+        //         int image_index = y * width + x;
+        //         image[image_index] = Color();
+
+        //         // 2x2のサブピクセルサンプリング
+        //         for (int sy = 0; sy < 2; sy++)
+        //         {
+        //             for (int sx = 0; sx < 2; sx++)
+        //             {
+        //                 // テントフィルターによってサンプリング
+        //                 //
+        //                 ピクセル範囲で一様にサンプリングするのではなく、ピクセル中央付近にサンプルがたくさん集まるように偏りを生じさせる
+        //                 const double r1 = 2.0 * rand01(), dx = r1 < 1.0 ? sqrt(r1) - 1.0 : 1.0 - sqrt(2.0 - r1);
+        //                 const double r2 = 2.0 * rand01(), dy = r2 < 1.0 ? sqrt(r2) - 1.0 : 1.0 - sqrt(2.0 - r2);
+        //                 Vec dir = cx * (((sx + 0.5 + dx) / 2.0 + x) / width - 0.5) +
+        //                           cy * (((sy + 0.5 + dy) / 2.0 + y) / height - 0.5) + camera.dir;
+        //                 image[image_index] =
+        //                     image[image_index] + radiance(Ray(camera.org + dir * 130.0, Normalize(dir)), 0,
+        //                     &photon_map,
+        //                                                   gather_photon_radius, gahter_max_photon_num);
+        //             }
+        //         }
+        //     }
+        // }
+        int supersamples = 2;
+        int samples = 2;
+        const Vec camera_up = Vec(0.0, 1.0, 0.0);
+        int screen_width = width;
+        int screen_height = height;
+
+        const Vec screen_x = Normalize(Cross(camera.dir, camera_up)) * screen_width;
+        const Vec screen_y = Normalize(Cross(screen_x, camera.dir)) * screen_height;
+        const Vec screen_center = camera.org + camera.dir * 800;
+
         for (int y = 0; y < height; y++)
         {
-            std::cerr << "Rendering " << (100.0 * y / (height - 1)) << "%" << std::endl;
-            srand(y * y * y);
+            std::cerr << "Rendering (y = " << y << ") " << (100.0 * y / (height - 1)) << "%" << std::endl;
+
             for (int x = 0; x < width; x++)
             {
-                int image_index = y * width + x;
-                image[image_index] = Color();
-
-                // 2x2のサブピクセルサンプリング
-                for (int sy = 0; sy < 2; sy++)
+                const int image_index = (height - y - 1) * width + x;
+                // supersamples x supersamples のスーパーサンプリング
+                for (int sy = 0; sy < supersamples; sy++)
                 {
-                    for (int sx = 0; sx < 2; sx++)
+                    for (int sx = 0; sx < supersamples; sx++)
                     {
-                        // テントフィルターによってサンプリング
-                        // ピクセル範囲で一様にサンプリングするのではなく、ピクセル中央付近にサンプルがたくさん集まるように偏りを生じさせる
-                        const double r1 = 2.0 * rand01(), dx = r1 < 1.0 ? sqrt(r1) - 1.0 : 1.0 - sqrt(2.0 - r1);
-                        const double r2 = 2.0 * rand01(), dy = r2 < 1.0 ? sqrt(r2) - 1.0 : 1.0 - sqrt(2.0 - r2);
-                        Vec dir = cx * (((sx + 0.5 + dx) / 2.0 + x) / width - 0.5) +
-                                  cy * (((sy + 0.5 + dy) / 2.0 + y) / height - 0.5) + camera.dir;
-                        image[image_index] =
-                            image[image_index] + radiance(Ray(camera.org + dir * 130.0, Normalize(dir)), 0, &photon_map,
-                                                          gather_photon_radius, gahter_max_photon_num);
+                        Color accumulated_radiance = Color();
+                        // 一つのサブピクセルあたりsamples回サンプリングする
+                        for (int s = 0; s < samples; s++)
+                        {
+                            const double rate = (1.0 / supersamples);
+                            const double r1 = sx * rate + rate / 2.0;
+                            const double r2 = sy * rate + rate / 2.0;
+                            // スクリーン上の位置
+                            const Vec screen_position = screen_center + screen_x * ((r1 + x) / width - 0.5) +
+                                                        screen_y * ((r2 + y) / height - 0.5);
+                            // レイを飛ばす方向
+                            const Vec dir = Normalize(screen_position - camera.org);
+
+                            accumulated_radiance = accumulated_radiance +
+                                                   radiance(Ray(camera.org + dir * 130.0, Normalize(dir)), 0,
+                                                            &photon_map, gather_photon_radius, gahter_max_photon_num)
+
+                                ;
+                        }
+                        image[image_index] = image[image_index] + accumulated_radiance;
                     }
                 }
             }
         }
 
         // .hdrフォーマットで出力
-        save_hdr_file(std::string("image.hdr"), image, width, height);
+        save_hdr_file(std::string("image_sample.hdr"), image, width, height);
     }
 }  // namespace photonmap_sample

@@ -9,7 +9,7 @@ namespace edupt
 {
     // レンダリングするシーンデータ
     const Sphere spheres[] = {
-        Sphere(5.0, Vec(50.0, 75.0, 81.6), Color(36, 36, 36), Color(), REFLECTION_TYPE_DIFFUSE),            //照明
+        Sphere(5, Vec(50.0, 75.0, 81.6), Color(36, 36, 36), Color(), REFLECTION_TYPE_DIFFUSE),            //照明
         Sphere(1e5, Vec(1e5 + 1, 40.8, 81.6), Color(), Color(0.75, 0.25, 0.25), REFLECTION_TYPE_DIFFUSE),    // 左
         Sphere(1e5, Vec(-1e5 + 99, 40.8, 81.6), Color(), Color(0.25, 0.25, 0.75), REFLECTION_TYPE_DIFFUSE),  // 右
         Sphere(1e5, Vec(50, 40.8, 1e5), Color(), Color(0.75, 0.75, 0.75), REFLECTION_TYPE_DIFFUSE),          // 奥

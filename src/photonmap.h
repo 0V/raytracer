@@ -9,9 +9,9 @@
 #include <string>
 #include <vector>
 
+#include "hdr.h"
 #include "kdtree.h"
 #include "material.h"
-#include "hdr.h"
 #include "ppm.h"
 #include "radiance.h"
 #include "random.h"
@@ -89,7 +89,6 @@ namespace photonmap
             russian_roulette_probability = 1.0;  // ロシアンルーレット実行しなかった
 
         Color incoming_radiance;
-        Color weight = 1.0;
 
         switch (now_object.reflection_type)
         {
@@ -114,25 +113,39 @@ namespace photonmap
                     max_distance2 = std::max(max_distance2, p.distance2);
                 }
 
-                // 円錐フィルタを使用して放射輝度推定する
+                // Coneフィルタ
                 const double max_distance = std::sqrt(max_distance2);
                 const double k = 1.1;
                 for (int i = 0; i < photons.size(); i++)
                 {
-                    const double w =
-                        1.0 - (std::sqrt(photons[i].distance2) / (k * max_distance));  // 円錐フィルタの重み
-                    const Color v = multiply(now_object.color, photons[i].point->power) /
-                                    M_PI;  // Diffuse面のBRDF = 1.0 / πであったのでこれをかける
+                    const double w = 1.0 - (std::sqrt(photons[i].distance2) / (k * max_distance));  // 重み
+                    const Color v =
+                        multiply(now_object.color, photons[i].point->power) / M_PI;  // DiffuseのBRDF = 1.0 / π
                     accumulated_flux = accumulated_flux + w * v;
                 }
-                accumulated_flux = accumulated_flux / (1.0 - 2.0 / (3.0 * k));  // 円錐フィルタの係数
+
+                accumulated_flux = accumulated_flux / (1.0 - 2.0 / (3.0 * k));
+
+                // // Gaussianフィルタ
+                // const double max_distance = std::sqrt(max_distance2);
+                // const double alpha = 0.918;
+                // const double beta = 1.953;
+                // for (int i = 0; i < photons.size(); i++)
+                // {
+                //     const double w =
+                //         alpha *
+                //         (1.0 - ((1 - std::exp(-beta * photons[i].distance2 * 0.5 / (max_distance * max_distance)) /
+                //                          (1 - std::exp(-beta)))));  // 重み
+                //     const Color v =
+                //         multiply(now_object.color, photons[i].point->power) / M_PI;  // DiffuseのBRDF = 1.0 / π
+                //     accumulated_flux = accumulated_flux + w * v;
+                // }
+
                 if (max_distance2 > 0.0)
                 {
                     return now_object.emission +
                            accumulated_flux / (M_PI * max_distance2) / russian_roulette_probability;
                 }
-
-                weight = now_object.color / russian_roulette_probability;
             }
             break;
 
@@ -141,10 +154,11 @@ namespace photonmap
             {
                 // 完全鏡面なのでレイの反射方向は決定的。
                 // ロシアンルーレットの確率で除算するのは上と同じ。
-                incoming_radiance = photonmap_radiance(
-                    Ray(hitpoint.position, ray.dir - hitpoint.normal * 2.0 * dot(hitpoint.normal, ray.dir)), sampler01,
-                    depth + 1, photon_map, gather_radius, gahter_max_photon_num);
-                weight = now_object.color / russian_roulette_probability;
+                return now_object.emission +
+                       photonmap_radiance(
+                           Ray(hitpoint.position, ray.dir - hitpoint.normal * 2.0 * dot(hitpoint.normal, ray.dir)),
+                           sampler01, depth + 1, photon_map, gather_radius, gahter_max_photon_num) /
+                           russian_roulette_probability;
             }
             break;
 
@@ -165,29 +179,26 @@ namespace photonmap
 
                 if (cos2t < 0.0)
                 {  // 全反射
-                    incoming_radiance = photonmap_radiance(reflection_ray, sampler01, depth + 1, photon_map,
-                                                           gather_radius, gahter_max_photon_num);
-                    weight = now_object.color / russian_roulette_probability;
-                    break;
+                    return now_object.emission +
+                           multiply(photonmap_radiance(reflection_ray, sampler01, depth + 1, photon_map, gather_radius,
+                                                       gahter_max_photon_num),
+                                    now_object.color) /
+                               russian_roulette_probability;
                 }
                 // 屈折の方向
                 const Ray refraction_ray =
                     Ray(hitpoint.position,
                         normalize(ray.dir * nnt - hitpoint.normal * (into ? 1.0 : -1.0) * (ddn * nnt + sqrt(cos2t))));
 
-                // SchlickによるFresnelの反射係数の近似を使う
+                // SchlickによるFresnelの反射係数の近似
                 const double a = nt - nc, b = nt + nc;
                 const double R0 = (a * a) / (b * b);
 
                 const double c = 1.0 - (into ? -ddn : dot(refraction_ray.dir, -1.0 * orienting_normal));
-                const double Re =
-                    R0 +
-                    (1.0 - R0) *
-                        pow(c,
-                            5.0);  // 反射方向の光が反射してray.dirの方向に運ぶ割合。同時に屈折方向の光が反射する方向に運ぶ割合。
-                const double nnt2 = pow(
-                    into ? nc / nt : nt / nc,
-                    2.0);  // レイの運ぶ放射輝度は屈折率の異なる物体間を移動するとき、屈折率の比の二乗の分だけ変化する。
+                // 反射方向の光が反射してray.dirの方向に運ぶ割合。同時に屈折方向の光が反射する方向に運ぶ割合。
+                const double Re = R0 + (1.0 - R0) * pow(c, 5.0);
+                // レイの運ぶ放射輝度は屈折率の異なる物体間を移動するとき、屈折率の比の二乗の分だけ変化する。
+                const double nnt2 = pow(into ? nc / nt : nt / nc, 2.0);
                 const double Tr = (1.0 - Re) * nnt2;  // 屈折方向の光が屈折してray.dirの方向に運ぶ割合
 
                 // 一定以上レイを追跡したら屈折と反射のどちらか一方を追跡する。（さもないと指数的にレイが増える）
@@ -197,34 +208,42 @@ namespace photonmap
                 {
                     if (sampler01.sample() < probability)
                     {  // 反射
-                        incoming_radiance = photonmap_radiance(reflection_ray, sampler01, depth + 1, photon_map,
-                                                               gather_radius, gahter_max_photon_num) *
-                                            Re;
-                        weight = now_object.color / (probability * russian_roulette_probability);
+                        return now_object.emission +
+                               multiply(now_object.color,
+                                        photonmap_radiance(reflection_ray, sampler01, depth + 1, photon_map,
+                                                           gather_radius, gahter_max_photon_num) *
+                                            Re) /
+                                   (probability * russian_roulette_probability);
                     }
                     else
                     {  // 屈折
-                        incoming_radiance = photonmap_radiance(refraction_ray, sampler01, depth + 1, photon_map,
-                                                               gather_radius, gahter_max_photon_num) *
-                                            Tr;
-                        weight = now_object.color / ((1.0 - probability) * russian_roulette_probability);
+                        return now_object.emission +
+                               multiply(now_object.color,
+                                        photonmap_radiance(refraction_ray, sampler01, depth + 1, photon_map,
+                                                           gather_radius, gahter_max_photon_num) *
+                                            Re) /
+                                   ((1.0 - probability) * russian_roulette_probability);
                     }
                 }
                 else
                 {  // 屈折と反射の両方を追跡
-                    incoming_radiance = photonmap_radiance(reflection_ray, sampler01, depth + 1, photon_map,
-                                                           gather_radius, gahter_max_photon_num) *
+                    return now_object.emission +
+                           multiply(now_object.color,
+                                    photonmap_radiance(reflection_ray, sampler01, depth + 1,
+                                     photon_map, gather_radius,
+                                                       gahter_max_photon_num) *
                                             Re +
                                         photonmap_radiance(refraction_ray, sampler01, depth + 1, photon_map,
                                                            gather_radius, gahter_max_photon_num) *
-                                            Tr;
-                    weight = now_object.color / (russian_roulette_probability);
+                                            Tr) /
+                               russian_roulette_probability;
+                    ;
                 }
             }
             break;
         }
 
-        return now_object.emission + multiply(weight, incoming_radiance);
+        return Color();
     }
 
     void create_photonmap(const int photon_count, PhotonMap* photon_map, const Sphere& light_sphere)
@@ -259,30 +278,20 @@ namespace photonmap
 
             Ray current_ray(source_pos, light_dir);
 
-            // emissionの値は放射輝度だが、フォトンが運ぶのは放射束なので変換する必要がある。
-            // L（放射輝度）= dΦ/(cosθdωdA)なので、光源の放射束はΦ =
-            // ∫∫L・cosθdωdAになる。今回は球光源で完全拡散光源であることから
-            // 球上の任意の場所、任意の方向に等しい放射輝度Leを持つ。（これがemissionの値）よって、
-            // Φ =
-            // Le・∫∫cosθdωdAで、Le・∫dA∫cosθdωとなり、∫dAは球の面積なので4πr^2、∫cosθdωは立体角の積分なのでπとなる。
-            // よって、Φ =
-            // Le・4πr^2・πとなる。この値を光源から発射するフォトン数で割ってやれば一つのフォトンが運ぶ放射束が求まる。
             Color current_flux = light_sphere.emission * 4.0 * std::pow(light_sphere.radius * M_PI, 2.0) / photon_count;
 
-            // フォトンがシーンを飛ぶ
             bool trace_end = false;
             while (!trace_end)
             {
-                // 放射束が0.0なフォトンを追跡してもしょうがないので打ち切る
                 if (std::max(current_flux.x, std::max(current_flux.y, current_flux.z)) <= 0.0) break;
 
                 Intersection intersect_data;
                 if (!intersect_scene(current_ray, &intersect_data)) break;
                 const Sphere& obj = spheres[intersect_data.object_id];
                 // 物体に対する入射方向が表か裏かを確認する
-                const Vec orienting_normal = dot(intersect_data.hitpoint.position, current_ray.dir) < 0.0
-                                                 ? intersect_data.hitpoint.position            // 物体外から入射
-                                                 : (-1.0 * intersect_data.hitpoint.position);  // 物体中から入射
+                const Vec orienting_normal = dot(intersect_data.hitpoint.normal, current_ray.dir) < 0.0
+                                                 ? intersect_data.hitpoint.normal            // 物体外から入射
+                                                 : (-1.0 * intersect_data.hitpoint.normal);  // 物体中から入射
 
                 switch (obj.reflection_type)
                 {
@@ -301,16 +310,16 @@ namespace photonmap
                             // orienting_normalの方向を基準とした正規直交基底(w, u,
                             // v)を作り。この基底に対する半球内で次のレイを飛ばす。
                             Vec diffuse_w, diffuse_u, diffuse_v;
-                            w = orienting_normal;
-                            if (fabs(w.x) > 0.1)
+                            diffuse_w = orienting_normal;
+                            if (fabs(diffuse_w.x) > 0.1)
                             {
-                                u = normalize(cross(Vec(0.0, 1.0, 0.0), w));
+                                diffuse_u = normalize(cross(Vec(0.0, 1.0, 0.0), diffuse_w));
                             }
                             else
                             {
-                                u = normalize(cross(Vec(1.0, 0.0, 0.0), w));
+                                diffuse_u = normalize(cross(Vec(1.0, 0.0, 0.0), diffuse_w));
                             }
-
+                            diffuse_v = cross(diffuse_w, diffuse_u);
                             Vec dir = cosine_sampling(diffuse_w, diffuse_u, diffuse_v, sampler01);
 
                             current_ray = Ray(intersect_data.hitpoint.position, dir);
@@ -326,8 +335,8 @@ namespace photonmap
                     {
                         // 完全鏡面
                         current_ray = Ray(intersect_data.hitpoint.position,
-                                          current_ray.dir - intersect_data.hitpoint.position * 2.0 *
-                                                                dot(intersect_data.hitpoint.position, current_ray.dir));
+                                          current_ray.dir - intersect_data.hitpoint.normal * 2.0 *
+                                                                dot(intersect_data.hitpoint.normal, current_ray.dir));
                         current_flux = multiply(current_flux, obj.color);
                     }
                     break;
@@ -336,8 +345,8 @@ namespace photonmap
                         // 屈折
                         Ray reflection_ray =
                             Ray(intersect_data.hitpoint.position,
-                                current_ray.dir - intersect_data.hitpoint.position * 2.0 *
-                                                      dot(intersect_data.hitpoint.position, current_ray.dir));
+                                current_ray.dir - intersect_data.hitpoint.normal * 2.0 *
+                                                      dot(intersect_data.hitpoint.normal, current_ray.dir));
                         // レイの屈折方向がオブジェクトの内側方向か外側方向かを確認する
                         const bool is_into = dot(intersect_data.hitpoint.normal, orienting_normal) >
                                              0.0;  // レイがオブジェクトから出るのか、入るのか
@@ -358,7 +367,7 @@ namespace photonmap
                         // 屈折していく方向
                         Vec tdir =
                             normalize(current_ray.dir * nnt - intersect_data.hitpoint.normal * (is_into ? 1.0 : -1.0) *
-                                                                  (ddn * nnt + sqrt(cos2t)));
+                                                                  (ddn * nnt + std::sqrt(cos2t)));
 
                         // SchlickによるFresnelの反射係数の近似
                         const double a = edupt::kIor - nc, b = edupt::kIor + nc;
@@ -399,8 +408,9 @@ namespace photonmap
         std::cout << "Done." << std::endl;
     }
 
-    int render(const int width, const int height, const int samples, const int supersamples, int photon_num = 5000,
-               double gather_photon_radius = 32.0, int gahter_max_photon_num = 64)
+    int render(const std::string& filename, const int width, const int height, const int samples,
+               const int supersamples, int photon_num = 5000, double gather_photon_radius = 32.0,
+               int gahter_max_photon_num = 64)
     {
         // カメラ位置
         const Vec camera_position = Vec(50.0, 52.0, 220.0);
@@ -426,12 +436,12 @@ namespace photonmap
 
         ValueSampler<double> sampler01(0, 1);
         // OpenMP
-        // #pragma omp parallel for schedule(dynamic, 1) num_threads(4)
+        // // #pragma omp parallel for schedule(dynamic, 1) num_threads(4)
+
         for (int y = 0; y < height; y++)
         {
             std::cerr << "Rendering (y = " << y << ") " << (100.0 * y / (height - 1)) << "%" << std::endl;
 
-            Random rnd(y + 1);
             for (int x = 0; x < width; x++)
             {
                 const int image_index = (height - y - 1) * width + x;
@@ -465,15 +475,45 @@ namespace photonmap
             }
         }
 
-        std::stringstream ss;
-        ss << "image_scene2_" << width << "_" << height << "_" << samples << "_" << supersamples << "_" << photon_num
-           << "_" << gather_photon_radius << "_" << gahter_max_photon_num << ".hdr";
+        //   #pragma omp parallel for schedule(dynamic, 1)
+
+        // for (int y = 0; y < height; y++)
+        // {
+        //     std::cerr << "Rendering " << (100.0 * y / (height - 1)) << "%" << std::endl;
+        //     srand(y * y * y);
+        //     for (int x = 0; x < width; x++)
+        //     {
+        //         int image_index = y * width + x;
+        //         image[image_index] = Color();
+
+        //         // 2x2のサブピクセルサンプリング
+        //         for (int sy = 0; sy < 2; sy++)
+        //         {
+        //             for (int sx = 0; sx < 2; sx++)
+        //             {
+        //                 // テントフィルターによってサンプリング
+        //                 //
+        //                 //
+        //                 ピクセル範囲で一様にサンプリングするのではなく、ピクセル中央付近にサンプルがたくさん集まるように偏りを生じさせる
+        //                 // const double
+        //                 const double r1 = 2.0 * sampler01.sample(),
+        //                              dx = r1 < 1.0 ? sqrt(r1) - 1.0 : 1.0 - sqrt(2.0 - r1);
+        //                 const double r2 = 2.0 * sampler01.sample(),
+        //                              dy = r2 < 1.0 ? sqrt(r2) - 1.0 : 1.0 - sqrt(2.0 - r2);
+        //                 Vec dir = screen_x * (((sx + 0.5 + dx) / 2.0 + x) / width - 0.5) +
+        //                           screen_y * (((sy + 0.5 + dy) / 2.0 + y) / height - 0.5) + camera_dir;
+        //                 image[image_index] = image[image_index] +
+        //                                      photonmap_radiance(Ray(camera_position, dir), sampler01, 0, &photon_map,
+        //                                                         gather_photon_radius, gahter_max_photon_num);
+        //             }
+        //         }
+        //     }
+        // }
+
 
         // 出力
         //        save_ppm_file(std::string("image.ppm"), image, width, height);
-        save_hdr_file(std::string(ss.str()), image, width, height);
-
+        save_hdr_file(filename, image, width, height);
         return 0;
     }
-
 }  // namespace photonmap
