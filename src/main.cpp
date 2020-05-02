@@ -2,6 +2,7 @@
 
 #include "photonmap.h"
 #include "photonmap_sample.h"
+#include "progressive_photonmapping.h"
 #include "render.h"
 
 int main(int argc, char **argv)
@@ -21,7 +22,7 @@ int main(int argc, char **argv)
     ss << "image_scene6_" << width << "_" << height << "_" << samples << "_" << supersamples << "_" << photon_num << "_"
        << gather_photon_radius << "_" << gahter_max_photon_num << ".hdr";
 
-    return photonmap::render(ss.str(), width, height, samples, supersamples, photon_num, gather_photon_radius,
+    return photonmap::standard::render(ss.str(), width, height, samples, supersamples, photon_num, gather_photon_radius,
                              gahter_max_photon_num);
     // return photonmap_sample::render();
 }

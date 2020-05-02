@@ -20,7 +20,7 @@
 
 namespace photonmap
 {
-    namespace standard
+    namespace progressive
     {
         using namespace edupt;
         using namespace photonmap::utility;
@@ -525,5 +525,5 @@ namespace photonmap
             save_hdr_file(filename, image, width, height);
             return 0;
         }
-    }  // namespace standard
+    }  // namespace progressive
 }  // namespace photonmap

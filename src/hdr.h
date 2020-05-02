@@ -4,84 +4,87 @@
 
 namespace photonmap
 {
-  using namespace edupt;
-    // *** .hdrフォーマットで出力するための関数 ***
-    struct HDRPixel
+    namespace utility
     {
-        unsigned char r, g, b, e;
-        HDRPixel(const unsigned char r_ = 0, const unsigned char g_ = 0, const unsigned char b_ = 0,
-                 const unsigned char e_ = 0)
-            : r(r_), g(g_), b(b_), e(e_){};
-        unsigned char get(int idx)
+        using namespace edupt;
+        // *** .hdrフォーマットで出力するための関数 ***
+        struct HDRPixel
         {
-            switch (idx)
+            unsigned char r, g, b, e;
+            HDRPixel(const unsigned char r_ = 0, const unsigned char g_ = 0, const unsigned char b_ = 0,
+                     const unsigned char e_ = 0)
+                : r(r_), g(g_), b(b_), e(e_){};
+            unsigned char get(int idx)
             {
-                case 0:
-                    return r;
-                case 1:
-                    return g;
-                case 2:
-                    return b;
-                case 3:
-                    return e;
-            }
-            return 0;
-        }
-    };
-
-    // doubleのRGB要素を.hdrフォーマット用に変換
-    HDRPixel get_hdr_pixel(const Color& color)
-    {
-        double d = std::max(color.x, std::max(color.y, color.z));
-        if (d <= 1e-32) return HDRPixel();
-        int e;
-        double m = frexp(d, &e);  // d = m * 2^e
-        d = m * 256.0 / d;
-        return HDRPixel(color.x * d, color.y * d, color.z * d, e + 128);
-    }
-
-    // 書き出し用関数
-    void save_hdr_file(const std::string& filename, const Color* image, const int width, const int height)
-    {
-        FILE* fp = fopen(filename.c_str(), "wb");
-        if (fp == NULL)
-        {
-            std::cerr << "Error: " << filename << std::endl;
-            return;
-        }
-        // .hdrフォーマットに従ってデータを書きだす
-        // ヘッダ
-        unsigned char ret = 0x0a;
-        fprintf(fp, "#?RADIANCE%c", (unsigned char)ret);
-        fprintf(fp, "# Made with 100%% pure HDR Shop%c", ret);
-        fprintf(fp, "FORMAT=32-bit_rle_rgbe%c", ret);
-        fprintf(fp, "EXPOSURE=1.0000000000000%c%c", ret, ret);
-
-        // 輝度値書き出し
-        fprintf(fp, "-Y %d +X %d%c", height, width, ret);
-        for (int i = 0; i < height; i++)
-        {
-            std::vector<HDRPixel> line;
-            for (int j = 0; j < width; j++)
-            {
-                HDRPixel p = get_hdr_pixel(image[j + i * width]);
-                line.push_back(p);
-            }
-            fprintf(fp, "%c%c", 0x02, 0x02);
-            fprintf(fp, "%c%c", (width >> 8) & 0xFF, width & 0xFF);
-            for (int i = 0; i < 4; i++)
-            {
-                for (int cursor = 0; cursor < width;)
+                switch (idx)
                 {
-                    const int cursor_move = std::min(127, width - cursor);
-                    fprintf(fp, "%c", cursor_move);
-                    for (int j = cursor; j < cursor + cursor_move; j++) fprintf(fp, "%c", line[j].get(i));
-                    cursor += cursor_move;
+                    case 0:
+                        return r;
+                    case 1:
+                        return g;
+                    case 2:
+                        return b;
+                    case 3:
+                        return e;
+                }
+                return 0;
+            }
+        };
+
+        // doubleのRGB要素を.hdrフォーマット用に変換
+        HDRPixel get_hdr_pixel(const Color& color)
+        {
+            double d = std::max(color.x, std::max(color.y, color.z));
+            if (d <= 1e-32) return HDRPixel();
+            int e;
+            double m = frexp(d, &e);  // d = m * 2^e
+            d = m * 256.0 / d;
+            return HDRPixel(color.x * d, color.y * d, color.z * d, e + 128);
+        }
+
+        // 書き出し用関数
+        void save_hdr_file(const std::string& filename, const Color* image, const int width, const int height)
+        {
+            FILE* fp = fopen(filename.c_str(), "wb");
+            if (fp == NULL)
+            {
+                std::cerr << "Error: " << filename << std::endl;
+                return;
+            }
+            // .hdrフォーマットに従ってデータを書きだす
+            // ヘッダ
+            unsigned char ret = 0x0a;
+            fprintf(fp, "#?RADIANCE%c", (unsigned char)ret);
+            fprintf(fp, "# Made with 100%% pure HDR Shop%c", ret);
+            fprintf(fp, "FORMAT=32-bit_rle_rgbe%c", ret);
+            fprintf(fp, "EXPOSURE=1.0000000000000%c%c", ret, ret);
+
+            // 輝度値書き出し
+            fprintf(fp, "-Y %d +X %d%c", height, width, ret);
+            for (int i = 0; i < height; i++)
+            {
+                std::vector<HDRPixel> line;
+                for (int j = 0; j < width; j++)
+                {
+                    HDRPixel p = get_hdr_pixel(image[j + i * width]);
+                    line.push_back(p);
+                }
+                fprintf(fp, "%c%c", 0x02, 0x02);
+                fprintf(fp, "%c%c", (width >> 8) & 0xFF, width & 0xFF);
+                for (int i = 0; i < 4; i++)
+                {
+                    for (int cursor = 0; cursor < width;)
+                    {
+                        const int cursor_move = std::min(127, width - cursor);
+                        fprintf(fp, "%c", cursor_move);
+                        for (int j = cursor; j < cursor + cursor_move; j++) fprintf(fp, "%c", line[j].get(i));
+                        cursor += cursor_move;
+                    }
                 }
             }
+
+            fclose(fp);
         }
 
-        fclose(fp);
-    }
-
+    }  // namespace utility
 }  // namespace photonmap
