@@ -484,42 +484,96 @@ namespace photonmap
                 }
             }
 
-            //   #pragma omp parallel for schedule(dynamic, 1)
+            // 出力
+            //        save_ppm_file(std::string("image.ppm"), image, width, height);
+            save_hdr_file(filename, image, width, height);
+            return 0;
+        }
 
-            // for (int y = 0; y < height; y++)
-            // {
-            //     std::cerr << "Rendering " << (100.0 * y / (height - 1)) << "%" << std::endl;
-            //     srand(y * y * y);
-            //     for (int x = 0; x < width; x++)
-            //     {
-            //         int image_index = y * width + x;
-            //         image[image_index] = Color();
+        int render_multiple_photonmap(const std::string& filename, const int width, const int height, const int samples,
+                                      const int supersamples, int photon_num = 5000, double gather_photon_radius = 32.0,
+                                      int gahter_max_photon_num = 64, int photonmap_num = 5)
+        {
+            // カメラ位置
+            const Vec camera_position = Vec(50.0, 52.0, 220.0);
+            const Vec camera_dir = normalize(Vec(0.0, -0.04, -1.0));
+            const Vec camera_up = Vec(0.0, 1.0, 0.0);
 
-            //         // 2x2のサブピクセルサンプリング
-            //         for (int sy = 0; sy < 2; sy++)
-            //         {
-            //             for (int sx = 0; sx < 2; sx++)
-            //             {
-            //                 // テントフィルターによってサンプリング
-            //                 //
-            //                 //
-            //                 ピクセル範囲で一様にサンプリングするのではなく、ピクセル中央付近にサンプルがたくさん集まるように偏りを生じさせる
-            //                 // const double
-            //                 const double r1 = 2.0 * sampler01.sample(),
-            //                              dx = r1 < 1.0 ? sqrt(r1) - 1.0 : 1.0 - sqrt(2.0 - r1);
-            //                 const double r2 = 2.0 * sampler01.sample(),
-            //                              dy = r2 < 1.0 ? sqrt(r2) - 1.0 : 1.0 - sqrt(2.0 - r2);
-            //                 Vec dir = screen_x * (((sx + 0.5 + dx) / 2.0 + x) / width - 0.5) +
-            //                           screen_y * (((sy + 0.5 + dy) / 2.0 + y) / height - 0.5) + camera_dir;
-            //                 image[image_index] = image[image_index] +
-            //                                      photonmap_radiance(Ray(camera_position, dir), sampler01, 0,
-            //                                      &photon_map,
-            //                                                         gather_photon_radius, gahter_max_photon_num);
-            //             }
-            //         }
-            //     }
-            // }
+            // ワールド座標系でのスクリーンの大きさ
+            const double screen_width = 30.0 * width / height;
+            const double screen_height = 30.0;
+            // スクリーンまでの距離
+            const double screen_dist = 40.0;
+            // スクリーンを張るベクトル
+            const Vec screen_x = normalize(cross(camera_dir, camera_up)) * screen_width;
+            const Vec screen_y = normalize(cross(screen_x, camera_dir)) * screen_height;
+            const Vec screen_center = camera_position + camera_dir * screen_dist;
 
+            Color* image = new Color[width * height];
+
+            std::cout << width << "x" << height << " " << samples * (supersamples * supersamples) << " spp"
+                      << std::endl;
+
+            std::vector<PhotonMap*> photon_maps;
+            for (size_t i = 0; i < photonmap_num; i++)
+            {
+                PhotonMap* photon_map = new PhotonMap();
+                create_photonmap(photon_num, photon_map, spheres[LightID]);
+                photon_maps.push_back(photon_map);
+            }
+
+            ValueSampler<double> sampler01(0, 1);
+            // OpenMP
+            // // #pragma omp parallel for schedule(dynamic, 1) num_threads(4)
+
+            for (int y = 0; y < height; y++)
+            {
+                std::cerr << "Rendering (y = " << y << ") " << (100.0 * y / (height - 1)) << "%" << std::endl;
+
+                for (int x = 0; x < width; x++)
+                {
+                    const int image_index = (height - y - 1) * width + x;
+                    // supersamples x supersamples のスーパーサンプリング
+                    for (int sy = 0; sy < supersamples; sy++)
+                    {
+                        for (int sx = 0; sx < supersamples; sx++)
+                        {
+                            Color accumulated_radiance = Color();
+                            // 一つのサブピクセルあたりsamples回サンプリングする
+                            for (int s = 0; s < samples; s++)
+                            {
+                                const double rate = (1.0 / supersamples);
+                                const double r1 = sx * rate + rate / 2.0;
+                                const double r2 = sy * rate + rate / 2.0;
+                                // スクリーン上の位置
+                                const Vec screen_position = screen_center + screen_x * ((r1 + x) / width - 0.5) +
+                                                            screen_y * ((r2 + y) / height - 0.5);
+                                // レイを飛ばす方向
+                                const Vec dir = normalize(screen_position - camera_position);
+
+                                Color radiance_tmp;
+                                for (size_t k = 0; k < photonmap_num; k++)
+                                {
+                                    radiance_tmp =
+                                        radiance_tmp + photonmap_radiance(Ray(camera_position, dir), sampler01, 0,
+                                                                          photon_maps[k], gather_photon_radius,
+                                                                          gahter_max_photon_num);
+                                }
+
+                                accumulated_radiance = accumulated_radiance + radiance_tmp / photonmap_num / samples /
+                                                                                  (supersamples * supersamples);
+                            }
+                            image[image_index] = image[image_index] + accumulated_radiance;
+                        }
+                    }
+                }
+            }
+
+            for (auto p : photon_maps)
+            {
+                delete p;
+            }
+            
             // 出力
             //        save_ppm_file(std::string("image.ppm"), image, width, height);
             save_hdr_file(filename, image, width, height);

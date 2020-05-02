@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "hdr.h"
+#include "intersection.h"
 #include "kdtree.h"
 #include "material.h"
 #include "ppm.h"
@@ -24,6 +25,16 @@ namespace photonmap
     {
         using namespace edupt;
         using namespace photonmap::utility;
+
+        struct ProgressiveIntersection
+        {
+            Hitpoint hitpoint;
+            Ray ray_direction;
+            Color weight;
+            double photon_radius;
+            int photon_count;
+            Color accumulated_flux;
+        };
 
         struct Photon
         {

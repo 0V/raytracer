@@ -15,14 +15,21 @@ int main(int argc, char **argv)
     int height = 480;
     int samples = 2;
     int supersamples = 2;
-    int photon_num = 500000;
+    int photon_num = 50000;
     int gather_photon_radius = 32;
     int gahter_max_photon_num = 64;
-    std::stringstream ss;
-    ss << "image_scene6_" << width << "_" << height << "_" << samples << "_" << supersamples << "_" << photon_num << "_"
-       << gather_photon_radius << "_" << gahter_max_photon_num << ".hdr";
 
-    return photonmap::standard::render(ss.str(), width, height, samples, supersamples, photon_num, gather_photon_radius,
-                             gahter_max_photon_num);
+    int photonmap_num = 10;
+    std::stringstream ss;
+
+    // ss << "image_scene6_" << width << "_" << height << "_" << samples << "_" << supersamples << "_" << photon_num << "_"
+    //    << gather_photon_radius << "_" << gahter_max_photon_num << ".hdr";
+    // return photonmap::standard::render(ss.str(), width, height, samples, supersamples, photon_num, gather_photon_radius,
+    //                                    gahter_max_photon_num);
+
+    ss << "image_scene6_multiple_" << width << "_" << height << "_" << samples << "_" << supersamples << "_" << photon_num << "_"
+       << gather_photon_radius << "_" << gahter_max_photon_num << "_" << photonmap_num << ".hdr";
+    return photonmap::standard::render_multiple_photonmap(ss.str(), width, height, samples, supersamples, photon_num,
+                                                          gather_photon_radius, gahter_max_photon_num, photonmap_num);
     // return photonmap_sample::render();
 }
