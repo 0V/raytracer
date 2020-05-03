@@ -70,9 +70,9 @@ namespace photonmap
             // 結果のQueueに乗せるためのデータ構造。
             struct ElementForQueue
             {
-                const T *point;
+                T *point;
                 double distance2;
-                ElementForQueue(const T *point_, const double distance2_) : point(point_), distance2(distance2_) {}
+                ElementForQueue(T *point_, const double distance2_) : point(point_), distance2(distance2_) {}
                 bool operator<(const ElementForQueue &b) const { return distance2 < b.distance2; }
             };
             // KNNの結果を格納するキュー
@@ -87,6 +87,8 @@ namespace photonmap
             void CreateKDtree() { root_node_ = BalanceKDTreeNode(node_values_.begin(), node_values_.end(), 0); }
 
             void AddData(const T &value) { node_values_.push_back(value); }
+
+            auto& GetData() { return node_values_; }
 
             void SearchNearest(typename KDTree::ResultQueue *pqueue, typename KDTree<T>::Query &query)
             {
@@ -194,5 +196,5 @@ namespace photonmap
                 return node;
             }
         };
-    }  // namespace name
+    }  // namespace utility
 }  // namespace photonmap

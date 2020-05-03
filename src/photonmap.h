@@ -232,15 +232,14 @@ namespace photonmap
                     }
                     else
                     {  // 屈折と反射の両方を追跡
-                        return now_object.emission +
-                               multiply(now_object.color,
-                                        photonmap_radiance(reflection_ray, sampler01, depth + 1, photon_map,
-                                                           gather_radius, gahter_max_photon_num) *
-                                                Re +
-                                            photonmap_radiance(refraction_ray, sampler01, depth + 1, photon_map,
-                                                               gather_radius, gahter_max_photon_num) *
-                                                Tr) /
-                                   russian_roulette_probability;
+                        auto tmp_radiance = multiply(
+                            now_object.color, photonmap_radiance(reflection_ray, sampler01, depth + 1, photon_map,
+                                                                 gather_radius, gahter_max_photon_num) *
+                                                      Re +
+                                                  photonmap_radiance(refraction_ray, sampler01, depth + 1, photon_map,
+                                                                     gather_radius, gahter_max_photon_num) *
+                                                      Tr);
+                        return now_object.emission + tmp_radiance / russian_roulette_probability;
                         ;
                     }
                 }
@@ -573,7 +572,7 @@ namespace photonmap
             {
                 delete p;
             }
-            
+
             // 出力
             //        save_ppm_file(std::string("image.ppm"), image, width, height);
             save_hdr_file(filename, image, width, height);
