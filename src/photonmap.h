@@ -232,14 +232,15 @@ namespace photonmap
                     }
                     else
                     {  // 屈折と反射の両方を追跡
-                        auto tmp_radiance = multiply(
-                            now_object.color, photonmap_radiance(reflection_ray, sampler01, depth + 1, photon_map,
-                                                                 gather_radius, gahter_max_photon_num) *
-                                                      Re +
-                                                  photonmap_radiance(refraction_ray, sampler01, depth + 1, photon_map,
-                                                                     gather_radius, gahter_max_photon_num) *
-                                                      Tr);
-                        return now_object.emission + tmp_radiance / russian_roulette_probability;
+                        return now_object.emission +
+                               multiply(now_object.color,
+                                        photonmap_radiance(reflection_ray, sampler01, depth + 1, photon_map,
+                                                           gather_radius, gahter_max_photon_num) *
+                                                Re +
+                                            photonmap_radiance(refraction_ray, sampler01, depth + 1, photon_map,
+                                                               gather_radius, gahter_max_photon_num) *
+                                                Tr) /
+                                   russian_roulette_probability;
                     }
                 }
                 break;

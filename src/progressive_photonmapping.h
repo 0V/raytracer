@@ -402,6 +402,15 @@ namespace photonmap
         {
             ValueSampler<double> sampler01(0, 1);
             double max_radius = 0;
+            int devide_num = 1;
+            int tmp_devide_num = photon_count;
+            while (tmp_devide_num > 10)
+            {
+                devide_num *= 100;
+                tmp_devide_num /= 100;
+                /* code */
+            }
+
             for (size_t i = 0; i < photon_count; i++)
             {
                 if (i % (photon_count / 10000) == 0)

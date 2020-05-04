@@ -870,7 +870,7 @@ namespace photonmap_sample
     {
         int width = 640;
         int height = 480;
-        int photon_num = 500000;
+        int photon_num = 1000000;
         double gather_photon_radius = 32.0;
         int gahter_max_photon_num = 64;
 
