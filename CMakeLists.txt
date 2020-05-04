@@ -4,9 +4,9 @@ project(raytracer)
 
 # For debug
 # set(CMAKE_BUILD_TYPE Debug)
-set(CMAKE_BUILD_TYPE Release)
+# set(CMAKE_BUILD_TYPE Release)
 
-set(BUILD_TARGET "raytracer")
+set(BUILD_TARGET "raytracer2")
 
 set(CMAKE_CXX_FLAGS "-Wall -pedantic -std=c++17")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")

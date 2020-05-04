@@ -240,7 +240,6 @@ namespace photonmap
                                                                      gather_radius, gahter_max_photon_num) *
                                                       Tr);
                         return now_object.emission + tmp_radiance / russian_roulette_probability;
-                        ;
                     }
                 }
                 break;

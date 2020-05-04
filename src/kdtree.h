@@ -102,6 +102,7 @@ namespace photonmap
                                typename KDTree<T>::Query &query)
             {
                 if (node == nullptr) return;
+                
                 const int axis = node->axis;
 
                 double delta;
