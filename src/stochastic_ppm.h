@@ -23,7 +23,7 @@
 namespace photonmap
 {
     /// emittionは0と仮定
-    namespace progressive
+    namespace sppm
     {
         using namespace edupt;
         using namespace photonmap::utility;
@@ -497,13 +497,10 @@ namespace photonmap
             }
             std::cout << "Done Rendering" << std::endl;
 
-            // OpenMP
-            // // #pragma omp parallel for schedule(dynamic, 1) num_threads(4)
-
             // 出力
             //        save_ppm_file(std::string("image.ppm"), image, width, height);
             save_hdr_file(filename, image, width, height);
             return 0;
         }
-    }  // namespace progressive
+    }  // namespace sppm
 }  // namespace photonmap
