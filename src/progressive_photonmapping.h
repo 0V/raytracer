@@ -18,11 +18,11 @@
 #include "random.h"
 #include "ray.h"
 #include "sampler/value_sampler.h"
+#include "scene.h"
 #include "vec.h"
 
 namespace photonmap
 {
-    /// emittionは0と仮定
     namespace progressive
     {
         using namespace edupt;
@@ -34,21 +34,23 @@ namespace photonmap
 
         struct ProgressiveIntersection
         {
+            Color accumulated_flux;
+            Color emission;
+
             Intersection intersection;
             Vec position;
-            Color weight;
+            double weight;
             double photon_radius_2;  // photon_radius^2
             int photon_count;
-            Color accumulated_flux;
             int index;
-            ProgressiveIntersection(Intersection intersection_, Color weight_, double photon_radius_2_,
-                                    int photon_count_, Color accumulated_flux_, int index_)
+            ProgressiveIntersection(Intersection intersection_, double weight_, double photon_radius_2_,
+                                    int photon_count_, int index_, const Color& emission_)
                 : intersection(intersection_),
                   position(intersection_.hitpoint.position),
                   weight(weight_),
                   photon_radius_2(photon_radius_2_),
-                  accumulated_flux(accumulated_flux_),
-                  index(index_)
+                  index(index_),
+                  emission(emission_)
             {
             }
         };
@@ -162,13 +164,24 @@ namespace photonmap
                                  1e-3) &&
                                 point.distance2 <= point.point->photon_radius_2)
                             {
-                                auto g = (point.point->photon_count * Alpha + Alpha) /
-                                         (point.point->photon_count * Alpha + 1.0);
+                                double g;
+                                if (point.point->photon_count != 0)
+                                {
+                                    g = (point.point->photon_count * Alpha + Alpha) /
+                                        (point.point->photon_count * Alpha + 1.0);
+                                }
+                                else
+                                {
+                                    g = 1;
+                                }
                                 point.point->photon_radius_2 = point.point->photon_radius_2 * g;
                                 point.point->photon_count++;
-                                point.point->accumulated_flux = (point.point->accumulated_flux +
-                                                                 multiply(point.point->weight, current_flux) / M_PI) *
-                                                                g;
+                                // point.point->accumulated_flux =
+                                //     obj.emission + (point.point->accumulated_flux +
+                                //                     multiply(point.point->weight, current_flux) / M_PI) *
+                                //                        g;
+                                point.point->accumulated_flux =
+                                    (point.point->accumulated_flux + multiply(obj.color, current_flux) / M_PI) * g;
                             }
                         }
 
@@ -274,7 +287,7 @@ namespace photonmap
             }
         }
 
-        void create_point(const Ray& ray, ValueSampler<double>& sampler01, const int depth, const Color& color,
+        void create_point(const Ray& ray, ValueSampler<double>& sampler01, const int depth, double weight,
                           PointMap* point_map, int index)
         {
             Intersection intersection;
@@ -284,9 +297,9 @@ namespace photonmap
             const Sphere& now_object = spheres[intersection.object_id];
             const Hitpoint& hitpoint = intersection.hitpoint;
             const Vec orienting_normal =
-                dot(hitpoint.normal, ray.dir) < 0.0
-                    ? hitpoint.normal
-                    : (-1.0 * hitpoint.normal);  // 交差位置の法線（物体からのレイの入出を考慮）
+                dot(hitpoint.normal, ray.dir) < 0.0 ? hitpoint.normal : (-1.0 * hitpoint.normal);
+
+            // 交差位置の法線（物体からのレイの入出を考慮）
             // 色の反射率最大のものを得る。ロシアンルーレットで使う。
             // ロシアンルーレットの閾値は任意だが色の反射率等を使うとより良い。
             double russian_roulette_probability =
@@ -304,15 +317,13 @@ namespace photonmap
             else
                 russian_roulette_probability = 1.0;  // ロシアンルーレット実行しなかった
 
-            Color incoming_radiance;
-
             switch (now_object.reflection_type)
             {
                 // 完全拡散面
                 case REFLECTION_TYPE_DIFFUSE:
                 {
-                    point_map->AddData(ProgressiveIntersection(intersection, multiply(now_object.color, color),
-                                                               InitialRadius, 0, Color(), index));
+                    point_map->AddData(ProgressiveIntersection(intersection, weight / russian_roulette_probability,
+                                                               InitialRadius, 0, index, now_object.emission));
                 }
                 break;
                 // 完全鏡面
@@ -321,7 +332,7 @@ namespace photonmap
                     // 完全鏡面なのでレイの反射方向は決定的。
                     // ロシアンルーレットの確率で除算するのは上と同じ。
                     create_point(Ray(hitpoint.position, reflection(ray.dir, hitpoint.normal)), sampler01, depth + 1,
-                                 multiply(now_object.color, color), point_map, index);
+                                 weight / russian_roulette_probability, point_map, index);
                 }
                 break;
 
@@ -341,9 +352,8 @@ namespace photonmap
 
                     if (cos2t < 0.0)
                     {  // 全反射
-                        create_point(reflection_ray, sampler01, depth + 1,
-                                     multiply(now_object.color, color) / russian_roulette_probability, point_map,
-                                     index);
+                        create_point(reflection_ray, sampler01, depth + 1, weight / russian_roulette_probability,
+                                     point_map, index);
                     }
                     // 屈折の方向
                     const Ray refraction_ray = Ray(
@@ -369,28 +379,22 @@ namespace photonmap
                         if (sampler01.sample() < probability)
                         {  // 反射
 
-                            create_point(
-                                reflection_ray, sampler01, depth + 1,
-                                multiply(now_object.color, color) * Re / (probability * russian_roulette_probability),
-                                point_map, index);
+                            create_point(reflection_ray, sampler01, depth + 1,
+                                         weight * Re / (probability * russian_roulette_probability), point_map, index);
                         }
                         else
                         {  // 屈折
 
                             create_point(refraction_ray, sampler01, depth + 1,
-                                         multiply(now_object.color, color) * Re /
-                                             ((1.0 - probability) * russian_roulette_probability),
-                                         point_map, index);
+                                         Re / ((1.0 - probability) * russian_roulette_probability), point_map, index);
                         }
                     }
                     else
                     {  // 屈折と反射の両方を追跡
-                        create_point(reflection_ray, sampler01, depth + 1,
-                                     multiply(now_object.color, color) * Re / russian_roulette_probability, point_map,
-                                     index);
-                        create_point(refraction_ray, sampler01, depth + 1,
-                                     multiply(now_object.color, color) * Tr / russian_roulette_probability, point_map,
-                                     index);
+                        create_point(reflection_ray, sampler01, depth + 1, weight * Re / russian_roulette_probability,
+                                     point_map, index);
+                        create_point(refraction_ray, sampler01, depth + 1, weight * Tr / russian_roulette_probability,
+                                     point_map, index);
                     }
                 }
                 break;
@@ -403,7 +407,7 @@ namespace photonmap
             double max_radius = 0;
             int devide_num = 1;
             int tmp_devide_num = photon_count;
-            while (tmp_devide_num > 10)
+            while (tmp_devide_num > 10000)
             {
                 devide_num *= 100;
                 tmp_devide_num /= 100;
@@ -412,7 +416,7 @@ namespace photonmap
 
             for (size_t i = 0; i < photon_count; i++)
             {
-                if (i % (photon_count / 10000) == 0)
+                if (i % devide_num == 0)
                 {
                     double max_radius_2 = 0;
                     for (const auto& p : point_map->GetData())
@@ -422,7 +426,62 @@ namespace photonmap
                     max_radius = std::sqrt(max_radius_2);
                     std::cout << "Photon Tracing (i = " << i << ") " << (100.0 * i / (photon_count - 1)) << "%"
                               << std::endl;
-                    std::cout << max_radius << std::endl;
+                    std::cout << "Rmax = " << max_radius << std::endl;
+                }
+
+                create_photon(spheres[LightID], sampler01, point_map, max_radius, gahter_max_photon_num);
+            }
+        };
+
+        void update_photons_with_render(int photon_count, PointMap* point_map, double gather_radius,
+                                        double gahter_max_photon_num, int width, int height, std::string filename)
+        {
+            ValueSampler<double> sampler01(0, 1);
+            double max_radius = 0;
+            int devide_num = 1;
+            int tmp_devide_num = photon_count;
+            while (tmp_devide_num > 10000)
+            {
+                devide_num *= 100;
+                tmp_devide_num /= 100;
+                /* code */
+            }
+
+            Color* image = new Color[width * height];
+            for (size_t i = 0; i < photon_count; i++)
+            {
+                if (i % devide_num == 0)
+                {
+                    double max_radius_2 = 0;
+                    for (const auto& p : point_map->GetData())
+                    {
+                        max_radius_2 = std::max(max_radius_2, p.photon_radius_2);
+                    }
+                    max_radius = std::sqrt(max_radius_2);
+                    std::cout << "Photon Tracing (i = " << i << ") " << (100.0 * i / (photon_count - 1)) << "%"
+                              << std::endl;
+                    std::cout << "Rmax = " << max_radius << std::endl;
+
+                    if (i % (devide_num * 100) == 0)
+                    {
+                        std::cout << "Rendering..." << std::endl;
+                        for (size_t i = 0; i < width * height; i++)
+                        {
+                            image[i] = Color();
+                        }
+                        for (auto node : point_map->GetData())
+                        {
+                            image[node.index] = image[node.index] + spheres[node.intersection.object_id].emission +
+                                                node.weight * node.accumulated_flux *
+                                                    (1.0 / (M_PI * node.photon_radius_2 * photon_count));
+                        }
+
+                        save_ppm_file(filename + "_" + std::to_string(i) + ".ppm", image, width, height);
+                        save_hdr_file(filename + "_" + std::to_string(i) + ".hdr", image, width, height);
+                        //                    save_hdr_file(filename + "_" + std::to_string(i) + ".hdr", image, width,
+                        //                    height);
+                        std::cout << "Done Rendering" << std::endl;
+                    }
                 }
 
                 create_photon(spheres[LightID], sampler01, point_map, max_radius, gahter_max_photon_num);
@@ -456,6 +515,29 @@ namespace photonmap
 
             //            create_pointmap(width, height, &point_map, samples);
 
+            // ValueSampler<double> sampler01(0, 1);
+            // for (int y = 0; y < height; y++)
+            // {
+            //     std::cout << "Creating Point Tracing Map (y = " << y << ") " << (100.0 * y / (height - 1)) << "%"
+            //               << std::endl;
+
+            //     for (int x = 0; x < width; x++)
+            //     {
+            //         const int image_index = (height - y - 1) * width + x;
+            //         // 一つのサブピクセルあたりsamples回サンプリングする
+            //         for (int s = 0; s < samples; s++)
+            //         {
+            //             // スクリーン上の位置
+            //             const Vec screen_position = screen_center + screen_x * ((double)x / width - 0.5) +
+            //                                         screen_y * ((double)y / height - 0.5);
+            //             // レイを飛ばす方向
+            //             const Vec dir = normalize(screen_position - camera_position);
+
+            //             create_point(Ray(camera_position, dir), sampler01, 0, 1, &point_map, image_index);
+            //         }
+            //     }
+            // }
+
             ValueSampler<double> sampler01(0, 1);
             for (int y = 0; y < height; y++)
             {
@@ -465,17 +547,28 @@ namespace photonmap
                 for (int x = 0; x < width; x++)
                 {
                     const int image_index = (height - y - 1) * width + x;
-                    Color accumulated_radiance = Color();
-                    // 一つのサブピクセルあたりsamples回サンプリングする
-                    for (int s = 0; s < samples; s++)
+                    for (int sy = 0; sy < supersamples; sy++)
                     {
-                        // スクリーン上の位置
-                        const Vec screen_position = screen_center + screen_x * ((double)x / width - 0.5) +
-                                                    screen_y * ((double)y / height - 0.5);
-                        // レイを飛ばす方向
-                        const Vec dir = normalize(screen_position - camera_position);
+                        for (int sx = 0; sx < supersamples; sx++)
+                        {
+                            // 一つのサブピクセルあたりsamples回サンプリングする
+                            for (int s = 0; s < samples; s++)
+                            {
+                                const double rate = (1.0 / supersamples);
+                                const double r1 = sx * rate + rate / 2.0;
+                                const double r2 = sy * rate + rate / 2.0;
+                                // スクリーン上の位置
+                                // const Vec screen_position = screen_center + screen_x * ((double)x / width - 0.5) +
+                                //                             screen_y * ((double)y / height - 0.5);
+                                const Vec screen_position = screen_center + screen_x * ((r1 + x) / width - 0.5) +
+                                                            screen_y * ((r2 + y) / height - 0.5);
 
-                        create_point(Ray(camera_position, dir), sampler01, 0, Color(1, 1, 1), &point_map, image_index);
+                                // レイを飛ばす方向
+                                const Vec dir = normalize(screen_position - camera_position);
+
+                                create_point(Ray(camera_position, dir), sampler01, 0, 1, &point_map, image_index);
+                            }
+                        }
                     }
                 }
             }
@@ -486,23 +579,24 @@ namespace photonmap
 
             std::cout << "Emitting Photon..." << std::endl;
 
-            update_photons(photon_num, &point_map, gather_photon_radius, gahter_max_photon_num);
+            update_photons_with_render(photon_num, &point_map, gather_photon_radius, gahter_max_photon_num, width,
+                                       height, filename);
+//            update_photons(photon_num, &point_map, gather_photon_radius, gahter_max_photon_num);
             std::cout << "Done Emitting Photon" << std::endl;
 
             std::cout << "Rendering..." << std::endl;
             for (auto node : point_map.GetData())
             {
                 image[node.index] =
-                    image[node.index] + node.accumulated_flux * (1.0 / (M_PI * node.photon_radius_2 * photon_num));
+                    image[node.index] + node.emission +
+                    node.weight * node.accumulated_flux * (1.0 / (M_PI * node.photon_radius_2 * photon_num));
             }
             std::cout << "Done Rendering" << std::endl;
 
-            // OpenMP
-            // // #pragma omp parallel for schedule(dynamic, 1) num_threads(4)
-
             // 出力
             //        save_ppm_file(std::string("image.ppm"), image, width, height);
-            save_hdr_file(filename, image, width, height);
+            save_ppm_file(filename + ".ppm", image, width, height);
+            save_hdr_file(filename + ".hdr", image, width, height);
             return 0;
         }
     }  // namespace progressive
