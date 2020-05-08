@@ -295,17 +295,32 @@ namespace ppm_sample
 
     // *** レンダリングするシーンデータ ****
     // from smallpt
+    // Sphere spheres[] = {
+    //     Sphere(5.0, Vec(50.0, 75.0, 81.6), Color(12, 12, 12), Color(), DIFFUSE),             //照明
+    //     Sphere(1e5, Vec(1e5 + 1, 40.8, 81.6), Color(), Color(0.75, 0.25, 0.25), DIFFUSE),    // 左
+    //     Sphere(1e5, Vec(-1e5 + 99, 40.8, 81.6), Color(), Color(0.25, 0.25, 0.75), DIFFUSE),  // 右
+    //     Sphere(1e5, Vec(50, 40.8, 1e5), Color(), Color(0.75, 0.75, 0.75), DIFFUSE),          // 奥
+    //     Sphere(1e5, Vec(50, 40.8, -1e5 + 170), Color(), Color(), DIFFUSE),                   // 手前
+    //     Sphere(1e5, Vec(50, 1e5, 81.6), Color(), Color(0.75, 0.75, 0.75), DIFFUSE),          // 床
+    //     Sphere(1e5, Vec(50, -1e5 + 81.6, 81.6), Color(), Color(0.75, 0.75, 0.75), DIFFUSE),  // 天井
+    //     Sphere(16.5, Vec(27, 16.5, 47), Color(), Color(1, 1, 1) * .99, SPECULAR),            // 鏡
+    //     Sphere(16.5, Vec(73, 16.5, 78), Color(), Color(1, 1, 1) * .99, REFRACTION),          //ガラス
+    // };
+
+        // レンダリングするシーンデータ scene_for_ppm
     Sphere spheres[] = {
-        Sphere(5.0, Vec(50.0, 75.0, 81.6), Color(12, 12, 12), Color(), DIFFUSE),             //照明
+        Sphere(5, Vec(50.0, 75.0, 81.6), Color(36, 36, 36), Color(), DIFFUSE),            //照明
         Sphere(1e5, Vec(1e5 + 1, 40.8, 81.6), Color(), Color(0.75, 0.25, 0.25), DIFFUSE),    // 左
         Sphere(1e5, Vec(-1e5 + 99, 40.8, 81.6), Color(), Color(0.25, 0.25, 0.75), DIFFUSE),  // 右
         Sphere(1e5, Vec(50, 40.8, 1e5), Color(), Color(0.75, 0.75, 0.75), DIFFUSE),          // 奥
-        Sphere(1e5, Vec(50, 40.8, -1e5 + 170), Color(), Color(), DIFFUSE),                   // 手前
+        Sphere(1e5, Vec(50, 40.8, -1e5 + 250), Color(), Color(), DIFFUSE),                   // 手前
         Sphere(1e5, Vec(50, 1e5, 81.6), Color(), Color(0.75, 0.75, 0.75), DIFFUSE),          // 床
         Sphere(1e5, Vec(50, -1e5 + 81.6, 81.6), Color(), Color(0.75, 0.75, 0.75), DIFFUSE),  // 天井
-        Sphere(16.5, Vec(27, 16.5, 47), Color(), Color(1, 1, 1) * .99, SPECULAR),            // 鏡
-        Sphere(16.5, Vec(73, 16.5, 78), Color(), Color(1, 1, 1) * .99, REFRACTION),          //ガラス
+        Sphere(20, Vec(65, 20, 20), Color(), Color(0.25, 0.75, 0.25), DIFFUSE),              // 緑球
+        Sphere(16.5, Vec(27, 16.5, 47), Color(), Color(0.99, 0.99, 0.99), SPECULAR),         // 鏡
+        Sphere(16.5, Vec(77, 16.5, 78), Color(), Color(0.99, 0.99, 0.99), REFRACTION),       //ガラス
     };
+
     const int LightID = 0;
 
     // *** レンダリング用関数 ***
@@ -738,8 +753,8 @@ namespace ppm_sample
 
     int render()
     {
-        int width = 320;
-        int height = 240;
+        int width = 640;
+        int height = 480;
         int photon_num = 10000;
         double gather_hitpoint_radius = INF;
         int gather_max_hitpoints = 32;
