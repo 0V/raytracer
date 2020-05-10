@@ -191,7 +191,8 @@ namespace photonmap
                         // A Practical Guide to Global Illumination using Photon Mapsとは異なるが
                         // RGBの平均値を反射確率とする。
                         // TODO: Depthに応じて上げたい
-                        const double probability = (obj.color.x + obj.color.y + obj.color.z) / 3;
+                        const double probability = std::max(obj.color.x,std::max(obj.color.y,obj.color.z));
+ //                       const double probability = (obj.color.x + obj.color.y + obj.color.z) / 3;
                         if (probability > sampler01.sample())
                         {
                             // 反射
@@ -442,7 +443,7 @@ namespace photonmap
         };
 
         void update_photons_with_render(int photon_count, PointMap* point_map, double gather_radius,
-                                        double gahter_max_photon_num, int width, int height, int spp,
+                                        double gahter_max_photon_num, int width, int height, double spp,
                                         std::string filename)
         {
             ValueSampler<double> sampler01(0, 1);
@@ -482,12 +483,13 @@ namespace photonmap
                         }
                         for (auto node : point_map->GetData())
                         {
-                            if (node.photon_count > 0)
-                            {
-                                image[node.index] = image[node.index] + node.emission +
-                                                    node.weight * node.accumulated_flux *
-                                                        (1.0 / (M_PI * node.photon_radius_2 * (i + 1))) / spp;
-                            }
+                            // if (node.photon_count > 0)
+                            // {
+                            image[node.index] = image[node.index] +
+                                                (node.emission + node.weight * node.accumulated_flux *
+                                                                     (1.0 / (M_PI * node.photon_radius_2 * (i + 1)))) /
+                                                    spp;
+                            //                            }
                         }
 
                         save_ppm_file(filename + "_" + std::to_string(i) + ".ppm", image, width, height);
@@ -520,8 +522,9 @@ namespace photonmap
 
             Color* image = new Color[width * height];
             std::vector<ProgressiveIntersection> hitpoint_list;
+            int spp = samples * (supersamples * supersamples);
 
-            std::cout << width << "x" << height << " " << samples << " spp" << std::endl;
+            std::cout << width << "x" << height << " " << spp << " spp" << std::endl;
 
             PointMap point_map;
 
@@ -549,8 +552,6 @@ namespace photonmap
             //         }
             //     }
             // }
-
-            int spp = supersamples * supersamples * samples;
 
             ValueSampler<double> sampler01(0, 1);
             for (int y = 0; y < height; y++)
@@ -602,8 +603,9 @@ namespace photonmap
             for (auto node : point_map.GetData())
             {
                 image[node.index] =
-                    image[node.index] + node.emission +
-                    node.weight * node.accumulated_flux * (1.0 / (M_PI * node.photon_radius_2 * photon_num)) / spp;
+                    image[node.index] + (node.emission + node.weight * node.accumulated_flux *
+                                                             (1.0 / (M_PI * node.photon_radius_2 * photon_num))) /
+                                            spp;
             }
             std::cout << "Done Rendering" << std::endl;
 
