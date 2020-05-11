@@ -9,12 +9,12 @@
 #include <string>
 #include <vector>
 
+#include "dof_camera.h"
 #include "hdr.h"
 #include "intersection.h"
 #include "kdtree.h"
 #include "material.h"
 #include "pinhole_camera.h"
-#include "dof_camera.h"
 #include "ppm.h"
 #include "radiance.h"
 #include "random.h"
@@ -193,7 +193,9 @@ namespace photonmap
                         // A Practical Guide to Global Illumination using Photon Mapsとは異なるが
                         // RGBの平均値を反射確率とする。
                         // TODO: Depthに応じて上げたい
-                        const double probability = (obj.color.x + obj.color.y + obj.color.z) / 3;
+                        const double probability = std::max(obj.color.x, std::max(obj.color.y, obj.color.z));
+                        //                       const double probability = (obj.color.x + obj.color.y + obj.color.z) /
+                        //                       3;
                         if (probability > sampler01.sample())
                         {
                             // 反射
@@ -517,8 +519,13 @@ namespace photonmap
             // スクリーンまでの距離
             const double screen_dist = 40.0;
 
-            PinholeCamera camera(width, height, screen_height, screen_dist, camera_position, camera_dir, camera_up,
-                                 supersamples);
+            /*
+                        PinholeCamera camera(width, height, screen_height, screen_dist, camera_position, camera_dir,
+            camera_up, supersamples);
+            /*/
+           DoFCamera camera(width, height, screen_height, screen_dist, camera_position, camera_dir, camera_up,
+                            supersamples, 0.3, 80);
+            // */
 
             Color* image = new Color[width * height];
             std::vector<ProgressiveIntersection> hitpoint_list;
@@ -569,7 +576,8 @@ namespace photonmap
                             // 一つのサブピクセルあたりsamples回サンプリングする
                             for (int s = 0; s < samples; s++)
                             {
-                                create_point(camera.get_ray(x, y, sx, sy), sampler01, 0, 1.0, &point_map, image_index);
+                                create_point(camera.get_ray(x, y, sx, sy), sampler01, 0, 1.0, &point_map,
+                                             image_index);
                             }
                         }
                     }
