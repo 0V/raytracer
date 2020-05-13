@@ -16,8 +16,8 @@ int main(int argc, char **argv)
     // edupt::render(640, 480, 4, 2);
     int width = 640;
     int height = 480;
-    int samples = 1;
-    int supersamples = 1;
+    int samples = 100;
+    int supersamples = 8;
     int photon_num = 50000;
     int gather_photon_radius = 32;
     int gahter_max_photon_num = 64;
@@ -25,6 +25,11 @@ int main(int argc, char **argv)
 
     int photonmap_num = 10;
     std::stringstream ss;
+    // for (size_t i = 60; i < 200; i = i + 10)
+    // {
+    //     edupt::render_dof(width, height, samples, supersamples, i);
+    // }
+    // return 0;
 
     //    return photonmap::smallppm::render();
 
@@ -58,19 +63,21 @@ int main(int argc, char **argv)
 
     samples = 1;
     supersamples = 1;
-    gather_photon_radius = 600000;
-    photonmap::progressive::InitialRadius = 25;
-    gahter_max_photon_num = 100;
-    photon_num = 1000000;
+    gather_photon_radius = 25;
+    photonmap::progressive::InitialRadius = gather_photon_radius;
 
-    ss << "image_" << scene_name << "_progressive7_" << width << "_" << height << "_" << samples << "_" << supersamples
+    gahter_max_photon_num = 1000000;
+    photon_num = 100000;
+
+    ss << "image_" << scene_name << "_sppm001_" << width << "_" << height << "_" << samples << "_" << supersamples
        << "_" << photon_num << "_" << gather_photon_radius << "_" << gahter_max_photon_num << "_" << photonmap_num;
 
-    //    return photonmap::progressive::render(ss.str(), width, height, samples, supersamples, photon_num,
-    //                                          gather_photon_radius, gahter_max_photon_num);
+    // return photonmap::progressive::render(ss.str(), width, height, samples, supersamples, photon_num,
+    //                                       gather_photon_radius, gahter_max_photon_num);
 
-    return photonmap::stochasticppm::render(ss.str(), width, height, samples, supersamples, photon_num,
-                                            gather_photon_radius, gahter_max_photon_num);
+    photonmap::stochasticppm::StochasticPpm sppm(width, height, samples, supersamples);
+    return sppm.render(ss.str(), width, height, samples, supersamples, photon_num, gather_photon_radius,
+                       gahter_max_photon_num, 100);
 
     //   return photonmap::sppm::render(ss.str(), width, height, samples, supersamples, photon_num,
     //   gather_photon_radius,

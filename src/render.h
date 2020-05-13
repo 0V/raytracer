@@ -3,14 +3,14 @@
 
 #include <iostream>
 
+#include "cameras.h"
 #include "ppm.h"
 #include "radiance.h"
 #include "random.h"
 
 namespace edupt
 {
-
-    int render_dof(const int width, const int height, const int samples, const int supersamples)
+    int render_dof(const int width, const int height, const int samples, const int supersamples, double focus)
     {
         // カメラ位置
         const Vec camera_position = Vec(50.0, 52.0, 220.0);
@@ -29,7 +29,14 @@ namespace edupt
 
         Color *image = new Color[width * height];
 
+        std::random_device seed_gen_;
+        std::mt19937 engine_ = std::mt19937(seed_gen_());
+
         std::cout << width << "x" << height << " " << samples * (supersamples * supersamples) << " spp" << std::endl;
+        DoFCamera camera(width, height, screen_height, screen_dist, camera_position, camera_dir, camera_up,
+                         supersamples, 2, focus, engine_);
+        // PinholeCamera camera(width, height, screen_height, screen_dist, camera_position, camera_dir, camera_up,
+        //                  supersamples);
 
         // OpenMP
         // #pragma omp parallel for schedule(dynamic, 1) num_threads(4)
@@ -50,17 +57,9 @@ namespace edupt
                         // 一つのサブピクセルあたりsamples回サンプリングする
                         for (int s = 0; s < samples; s++)
                         {
-                            const double rate = (1.0 / supersamples);
-                            const double r1 = sx * rate + rate / 2.0;
-                            const double r2 = sy * rate + rate / 2.0;
-                            // スクリーン上の位置
-                            const Vec screen_position = screen_center + screen_x * ((r1 + x) / width - 0.5) +
-                                                        screen_y * ((r2 + y) / height - 0.5);
-                            // レイを飛ばす方向
-                            const Vec dir = normalize(screen_position - camera_position);
-
-                            accumulated_radiance = accumulated_radiance + radiance(Ray(camera_position, dir), &rnd, 0) /
-                                                                              samples / (supersamples * supersamples);
+                            accumulated_radiance =
+                                accumulated_radiance + radiance(Ray(camera.get_ray(x, y, sx, sy)), &rnd, 0) / samples /
+                                                           (supersamples * supersamples);
                         }
                         image[image_index] = image[image_index] + accumulated_radiance;
                     }
@@ -69,7 +68,7 @@ namespace edupt
         }
 
         // 出力
-        save_ppm_file(std::string("image.ppm"), image, width, height);
+        save_ppm_file(std::string("image" + std::to_string(focus) + ".ppm"), image, width, height);
         return 0;
     }
 
