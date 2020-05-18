@@ -25,72 +25,16 @@
 
 namespace photonmap
 {
-    namespace sppm
+    namespace mwmo_stochasticppm
     {
         using namespace edupt;
         using namespace photonmap::utility;
-        template <int Width, int Height>
+
         class StochasticPpm
         {
         public:
-            int LightID = 0;
-            const double INF = 1e20;
-            const double EPS = 1e-6;
-            int min_depth = 5;
-            int depth_threshold = 64;
-            double alpha = 0.7;            // the alpha parameter of PPM
-            double initial_radius_2 = 25;  // the alpha parameter of PPM
-            int* imageidx_pointidx;
+        
 
-            // カメラ位置
-            const Vec camera_position = Vec(50.0, 52.0, 220.0);
-            const Vec camera_dir = normalize(Vec(0.0, -0.04, -1.0));
-            const Vec camera_up = Vec(0.0, 1.0, 0.0);
-
-            // ワールド座標系でのスクリーンの大きさ
-            double screen_width;
-            double screen_height = 30.0;
-            // スクリーンまでの距離
-            double screen_dist = 40.0;
-
-            const int width = Width;
-            const int height = Height;
-            static constexpr int PixelCount = Width * Height;
-
-            int samples;
-            int supersamples;
-            int photon_num;
-
-            std::array<Color, PixelCount> emit_container;
-
-            std::random_device seed_gen_;
-            std::mt19937 engine_ = std::mt19937(seed_gen_());
-
-            /*
-            DoFCamera camera;
-            DoFCamera InitCamera()
-            {
-                return DoFCamera(width, height, screen_height, screen_dist, camera_position, camera_dir, camera_up,
-                                 supersamples, 2, 60, engine_);
-            }
-            /*/
-            PinholeCamera camera;
-            PinholeCamera InitCamera()
-            {
-                return PinholeCamera(width, height, screen_height, screen_dist, camera_position, camera_dir, camera_up,
-                                     supersamples);
-            }
-
-            // */
-            StochasticPpm() : screen_width(30.0 * width / height), screen_height(30.0), camera(InitCamera()) {}
-            StochasticPpm(const int samples_, const int supersamples_)
-                : samples(samples_),
-                  supersamples(supersamples_),
-                  screen_width(30.0 * width / height),
-                  screen_height(30.0),
-                  camera(InitCamera())
-            {
-            }
             struct ProgressiveIntersection
             {
                 Color accumulated_flux;
@@ -102,6 +46,7 @@ namespace photonmap
                 double photon_radius_2;  // photon_radius^2
                 int photon_count;
                 int index;
+
                 ProgressiveIntersection(Intersection intersection_, double weight_, double photon_radius_2_,
                                         int photon_count_, int index_, const Color& emission_)
                     : intersection(intersection_),
@@ -127,6 +72,71 @@ namespace photonmap
 
             using PointMap = KDTree<ProgressiveIntersection>;
 
+            StochasticPpm(const int width_, const int height_)
+                : width(width_),
+                  height(height_),
+                  screen_width(30.0 * width / height),
+                  screen_height(30.0),
+                  camera(InitCamera())
+
+            {
+            }
+            StochasticPpm(const int width_, const int height_, const int samples_, const int supersamples_)
+                : width(width_),
+                  height(height_),
+                  samples(samples_),
+                  supersamples(supersamples_),
+                  screen_width(30.0 * width / height),
+                  screen_height(30.0),
+                  camera(InitCamera())
+            {
+            }
+
+            int LightID = 0;
+            const double INF = 1e20;
+            const double EPS = 1e-6;
+            int min_depth = 5;
+            int depth_threshold = 14;
+            double alpha = 0.7;          // the alpha parameter of PPM
+            double initial_radius_2 = 25;  // the alpha parameter of PPM
+            std::map<int, int> imageidx_pointidx;
+
+            // カメラ位置
+            const Vec camera_position = Vec(50.0, 52.0, 220.0);
+            const Vec camera_dir = normalize(Vec(0.0, -0.04, -1.0));
+            const Vec camera_up = Vec(0.0, 1.0, 0.0);
+
+            // ワールド座標系でのスクリーンの大きさ
+            double screen_width;
+            double screen_height = 30.0;
+            // スクリーンまでの距離
+            double screen_dist = 40.0;
+
+            int width;
+            int height;
+            int samples;
+            int supersamples;
+            int photon_num;
+
+            std::random_device seed_gen_;
+            std::mt19937 engine_ = std::mt19937(seed_gen_());
+
+            //*
+            DoFCamera camera;
+            DoFCamera InitCamera()
+            {
+                return DoFCamera(width, height, screen_height, screen_dist, camera_position, camera_dir, camera_up,
+                                 supersamples, 2, 60, engine_);
+            }
+            /*/
+PinholeCamera camera;
+PinholeCamera InitCamera()
+{
+    return PinholeCamera(width, height, screen_height, screen_dist, camera_position, camera_dir, camera_up,
+                         supersamples);
+}
+
+// */
             // コサイン項によるImportance Sampling
             decltype(auto) cosine_sampling(const Vec& w, const Vec& u, const Vec& v, ValueSampler<double>& sampler01)
             {
@@ -145,22 +155,9 @@ namespace photonmap
                 return Vec(std::sqrt(r3) * std::cos(r1), std::sqrt(r3) * std::sin(r1), r2);
             }
 
-            void reset_emit_container()
-            {
-                for (size_t i = 0; i < PixelCount; i++)
-                {
-                    emit_container[i] = Color();
-                }
-            }
             void create_photon(const Sphere& light_sphere, ValueSampler<double>& sampler01, PointMap* point_map,
                                double gather_radius, double gahter_max_photon_num)
             {
-                // 光源からフォトンを発射する
-                // 光源は球。球の一点をサンプリングする
-                const double r1 = 2 * M_PI * sampler01.sample();
-                const double r2 = 1.0 - 2.0 * sampler01.sample();
-                const double r3 = 1.0 - r2 * r2;
-
                 const Vec source_pos =
                     light_sphere.position + ((light_sphere.radius + EPS) * sphere_sampling(sampler01));
                 const Vec source_dir = normalize(source_pos - light_sphere.position);
@@ -186,7 +183,6 @@ namespace photonmap
                 Color current_flux = light_sphere.emission * 4.0 * std::pow(light_sphere.radius * M_PI, 2.0);
 
                 bool trace_end = false;
-                int depth = 0;
 
                 while (!trace_end)
                 {
@@ -199,56 +195,61 @@ namespace photonmap
                     const Vec orienting_normal = dot(intersect_data.hitpoint.normal, current_ray.dir) < 0.0
                                                      ? intersect_data.hitpoint.normal  // 物体外から入射
                                                      : (-1.0 * intersect_data.hitpoint.normal);  // 物体中から入射
-                    depth++;
+
                     switch (obj.reflection_type)
                     {
                         case edupt::REFLECTION_TYPE_DIFFUSE:
                         {
-                            if (depth > 0)  // add contribution (depth == 0 => direct illumination)
+                            PointMap::ResultQueue result_queue;
+
+                            PointMap::Query query(intersect_data.hitpoint.position, orienting_normal, gather_radius,
+                                                  gahter_max_photon_num);
+                            point_map->SearchNearest(&result_queue, query);
+                            // キューからフォトンを取り出しvectorに格納する
+                            std::vector<PointMap::ElementForQueue> points;
+                            points.reserve(result_queue.size());
+
+                            //                        if (result_queue.size() > 0) std::cout << result_queue.size();
+                            while (!result_queue.empty())
                             {
-                                typename PointMap::ResultQueue result_queue;
+                                PointMap::ElementForQueue p = result_queue.top();
+                                result_queue.pop();
+                                points.push_back(p);
+                                //                            max_distance2 = std::max(max_distance2, p.distance2);
+                            }
 
-                                typename PointMap::Query query(intersect_data.hitpoint.position, orienting_normal,
-                                                               gather_radius, gahter_max_photon_num);
-                                point_map->SearchNearest(&result_queue, query);
-                                // キューからフォトンを取り出しvectorに格納する
-                                std::vector<typename PointMap::ElementForQueue> points;
-                                points.reserve(result_queue.size());
-
-                                //                        if (result_queue.size() > 0) std::cout << result_queue.size();
-                                while (!result_queue.empty())
+                            for (auto& point : points)
+                            {
+                                if ((dot(point.point->intersection.hitpoint.normal, intersect_data.hitpoint.normal) >
+                                     1e-3))
                                 {
-                                    typename PointMap::ElementForQueue p = result_queue.top();
-                                    result_queue.pop();
-                                    points.push_back(p);
-                                    //                            max_distance2 = std::max(max_distance2, p.distance2);
-                                }
-
-                                for (auto& point : points)
-                                {
-                                    if ((dot(point.point->intersection.hitpoint.normal,
-                                             intersect_data.hitpoint.normal) > 1e-3) &&
-                                        point.distance2 <= point.point->photon_radius_2)
+                                    if (point.point->photon_count == 0)
                                     {
-                                        double g;
-                                        if (point.point->photon_count != 0)
-                                        {
-                                            g = (point.point->photon_count * alpha + alpha) /
-                                                (point.point->photon_count * alpha + 1.0);
-                                        }
-                                        else
-                                        {
-                                            g = 1;
-                                        }
-                                        point.point->photon_radius_2 = point.point->photon_radius_2 * g;
-                                        point.point->photon_count++;
-                                        // point.point->accumulated_flux =
-                                        //     obj.emission + (point.point->accumulated_flux +
-                                        //                     multiply(point.point->weight, current_flux) / M_PI) *
-                                        //                        g;
+                                        point.point->photon_radius_2 = initial_radius_2;
                                         point.point->accumulated_flux =
-                                            (point.point->accumulated_flux + multiply(obj.color, current_flux) / M_PI) *
-                                            g;
+                                            point.point->accumulated_flux + (multiply(obj.color, current_flux) / M_PI);
+
+                                        point.point->photon_count++;
+                                    }
+                                    else
+                                    {
+                                        if (point.distance2 < point.point->photon_radius_2)
+                                        {
+                                            const int N = point.point->photon_count;
+                                            const int M = 1;
+
+                                            double g2 = (N + alpha * M) / (N + M);
+                                            point.point->photon_radius_2 = point.point->photon_radius_2 * g2;
+                                            point.point->photon_count++;
+                                            // point.point->accumulated_flux =
+                                            //     obj.emission + (point.point->accumulated_flux +
+                                            //                     multiply(point.point->weight, current_flux) / M_PI) *
+                                            //                        g;
+                                            point.point->accumulated_flux =
+                                                (point.point->accumulated_flux +
+                                                 (multiply(obj.color, current_flux) / M_PI)) *
+                                                g2;
+                                        }
                                     }
                                 }
                             }
@@ -256,7 +257,9 @@ namespace photonmap
                             // A Practical Guide to Global Illumination using Photon Mapsとは異なるが
                             // RGBの平均値を反射確率とする。
                             // TODO: Depthに応じて上げたい
-                            const double probability = (obj.color.x + obj.color.y + obj.color.z) / 3;
+                            const double probability = std::max(obj.color.x, std::max(obj.color.y, obj.color.z));
+                            //                       const double probability = (obj.color.x + obj.color.y +
+                            //                       obj.color.z) / 3;
                             if (probability > sampler01.sample())
                             {
                                 // 反射
@@ -287,20 +290,16 @@ namespace photonmap
                         case edupt::REFLECTION_TYPE_SPECULAR:
                         {
                             // 完全鏡面
-                            current_ray =
-                                Ray(intersect_data.hitpoint.position,
-                                    current_ray.dir - intersect_data.hitpoint.normal * 2.0 *
-                                                          dot(intersect_data.hitpoint.normal, current_ray.dir));
+                            current_ray = Ray(intersect_data.hitpoint.position,
+                                              reflection(current_ray.dir, intersect_data.hitpoint.normal));
                             current_flux = multiply(current_flux, obj.color);
                         }
                         break;
                         case edupt::REFLECTION_TYPE_REFRACTION:
                         {
                             // 屈折
-                            Ray reflection_ray =
-                                Ray(intersect_data.hitpoint.position,
-                                    current_ray.dir - intersect_data.hitpoint.normal * 2.0 *
-                                                          dot(intersect_data.hitpoint.normal, current_ray.dir));
+                            Ray reflection_ray = Ray(intersect_data.hitpoint.position,
+                                                     reflection(current_ray.dir, intersect_data.hitpoint.normal));
                             // レイの屈折方向がオブジェクトの内側方向か外側方向かを確認する
                             const bool is_into = dot(intersect_data.hitpoint.normal, orienting_normal) >
                                                  0.0;  // レイがオブジェクトから出るのか、入るのか
@@ -308,7 +307,8 @@ namespace photonmap
                             // Snellの法則
                             const double nc = 1.0;  // 真空の屈折率
                             // edupt::kIor オブジェクトの屈折率
-                            const double nnt = is_into ? nc / edupt::kIor : edupt::kIor / nc;
+                            const double nt = edupt::kIor;  // オブジェクトの屈折率
+                            const double nnt = is_into ? nc / nt : nt / nc;
                             const double ddn = dot(current_ray.dir, orienting_normal);
                             const double cos2t = 1.0 - nnt * nnt * (1.0 - ddn * ddn);
 
@@ -324,7 +324,7 @@ namespace photonmap
                                                                              (ddn * nnt + std::sqrt(cos2t)));
 
                             // SchlickによるFresnelの反射係数の近似
-                            const double a = edupt::kIor - nc, b = edupt::kIor + nc;
+                            const double a = nt - nc, b = nt + nc;
                             const double R0 = (a * a) / (b * b);
                             const double c = 1.0 - (is_into ? -ddn : dot(tdir, intersect_data.hitpoint.normal));
                             const double Re = R0 + (1.0 - R0) * pow(c, 5.0);
@@ -356,50 +356,6 @@ namespace photonmap
                 }
             }
 
-            Color next_event_est(const Intersection& isect, const Sphere& light, const Vec& orienting_normal,
-                                 double weight, ValueSampler<double>& sampler01)
-            {
-                auto light_pos = light.position + sphere_sampling(sampler01);
-
-                // ライトへのベクトル
-                auto light_dir = light_pos - isect.hitpoint.position;
-
-                // ライトへの距離の2乗
-                auto light_dist2 = dot(light_dir, light_dir);
-
-                // 正規化.
-                light_dir = normalize(light_dir);
-
-                // ライトの法線ベクトル
-                auto light_normal = normalize(light_pos - light.position);
-
-                auto dot0 = dot(orienting_normal, light_dir);
-                auto dot1 = dot(light_normal, -1 * light_dir);
-                auto rad2 = light.radius * light.radius;
-
-                // 寄与が取れる場合.
-                if (dot0 >= 0 && dot1 >= 0 && light_dist2 >= rad2)
-                {
-                    Intersection shadow_isect;
-                    double shadow_t;
-                    int shadow_id;
-                    Ray shadow_ray(isect.hitpoint.position, light_dir);
-
-                    // シャドウレイを発射
-                    auto is_hit = intersect_scene(shadow_ray, &shadow_isect);
-
-                    // ライトのみと衝突した場合のみ寄与を取る.
-                    if (is_hit && shadow_isect.object_id == LightID)
-                    {
-                        auto G = dot0 * dot1 / light_dist2;
-                        auto pdf = 1.0 / (4.0 * M_PI * rad2);
-                        return weight * multiply(light.emission, spheres[isect.object_id].color) * G / M_PI / pdf;
-                    }
-                }
-
-                return Color();
-            }
-
             void create_point(const Ray& ray, ValueSampler<double>& sampler01, const int depth, double weight,
                               PointMap* point_map, int index)
             {
@@ -419,7 +375,7 @@ namespace photonmap
                     std::max(now_object.color.x, std::max(now_object.color.y, now_object.color.z));
 
                 // 反射回数が一定以上になったらロシアンルーレットの確率を急上昇させる。（スタックオーバーフロー対策）
-                if (depth > depth_threshold) russian_roulette_probability *= std::pow(0.5, depth - depth_threshold);
+                if (depth > depth_threshold) russian_roulette_probability *= std::pow(0.5, depth - kDepthLimit);
 
                 // ロシアンルーレットを実行し追跡を打ち切るかどうかを判断する。
                 // ただしDepth回の追跡は保障する。
@@ -428,48 +384,32 @@ namespace photonmap
                     if (sampler01.sample() >= russian_roulette_probability) return;
                 }
                 else
-                {
                     russian_roulette_probability = 1.0;  // ロシアンルーレット実行しなかった
-                }
 
                 switch (now_object.reflection_type)
                 {
                     // 完全拡散面
                     case REFLECTION_TYPE_DIFFUSE:
                     {
-                        auto p_it = imageidx_pointidx[index];
-
-                        emit_container[index] =
-                            emit_container[index] + next_event_est(intersection, spheres[LightID], orienting_normal,
-                                                                   weight / russian_roulette_probability, sampler01);
+                        auto p_it = imageidx_pointidx.find(index);
                         // Not Found
-                        if (p_it < 0)
+                        if (p_it == imageidx_pointidx.end())
                         {
-                            std::cout << point_map->Size() << std::endl;
-                            imageidx_pointidx[index] = 1;
-                            point_map->AddData(
-                                ProgressiveIntersection(intersection, weight / russian_roulette_probability,
-                                                        initial_radius_2, 0, index, now_object.emission));
+                            imageidx_pointidx.insert(std::make_pair(index, point_map->Size()));
+                            point_map->AddData(ProgressiveIntersection(intersection,
+                                                                       weight / russian_roulette_probability,
+                                                                       initial_radius_2, 0, index, now_object.emission));
                         }
                         else  // Found Point
                         {
                             auto& point_list = point_map->GetData();
-                            for (auto& point : point_list)
-                            {
-                                if (point.index == index)
-                                {
-                                    point.intersection = intersection;
-                                    point.position = intersection.hitpoint.position;
-                                    point.weight = weight / russian_roulette_probability;
-                                    point.emission = now_object.emission;
-                                    // emit_container[index] = emit_container[index] +
-                                    //                         now_object.emission * weight /
-                                    //                         russian_roulette_probability;
-
-                                    break;
-                                }
-                            }
+                            auto& point = point_list.at(p_it->second);
+                            point.intersection = intersection;
+                            point.position = intersection.hitpoint.position;
+                            point.weight = weight / russian_roulette_probability;
+                            point.emission = now_object.emission;
                         }
+
                         return;
                     }
                     break;
@@ -480,6 +420,7 @@ namespace photonmap
                         // ロシアンルーレットの確率で除算するのは上と同じ。
                         create_point(Ray(hitpoint.position, reflection(ray.dir, hitpoint.normal)), sampler01, depth + 1,
                                      weight / russian_roulette_probability, point_map, index);
+                        return;
                     }
                     break;
 
@@ -496,6 +437,7 @@ namespace photonmap
                         const double nnt = into ? nc / nt : nt / nc;
                         const double ddn = dot(ray.dir, orienting_normal);
                         const double cos2t = 1.0 - nnt * nnt * (1.0 - ddn * ddn);
+
                         if (cos2t < 0.0)
                         {  // 全反射
                             create_point(reflection_ray, sampler01, depth + 1, weight / russian_roulette_probability,
@@ -549,7 +491,6 @@ namespace photonmap
                             return;
                         }
                     }
-
                     break;
                 }
             }
@@ -558,7 +499,7 @@ namespace photonmap
                                 double gahter_max_photon_num)
             {
                 ValueSampler<double> sampler01(0, 1);
-                double max_radius = 0;
+                //            double max_radius = 0;
                 int devide_num = 100;
                 int tmp_devide_num = photon_count;
                 while (tmp_devide_num > 10000)
@@ -572,68 +513,118 @@ namespace photonmap
                 {
                     if (i % devide_num == 0)
                     {
-                        double max_radius_2 = 0;
-                        for (const auto& p : point_map->GetData())
-                        {
-                            max_radius_2 = std::max(max_radius_2, p.photon_radius_2);
-                        }
-                        max_radius = std::sqrt(max_radius_2);
+                        // double max_radius_2 = 0;
+                        // for (const auto& p : point_map->GetData())
+                        // {
+                        //     max_radius_2 = std::max(max_radius_2, p.photon_radius_2);
+                        // }
+                        // max_radius = std::sqrt(max_radius_2);
                         std::cout << "Photon Tracing (i = " << i << ") " << (100.0 * i / (photon_count - 1)) << "%"
                                   << std::endl;
-                        std::cout << "Rmax = " << max_radius << std::endl;
+                        //                    std::cout << "Rmax = " << max_radius << std::endl;
                     }
 
-                    create_photon(spheres[LightID], sampler01, point_map, max_radius, gahter_max_photon_num);
+                    create_photon(spheres[LightID], sampler01, point_map, gather_radius, gahter_max_photon_num);
                 }
             };
 
             void update_photons_with_render(int photon_count, PointMap* point_map, double gather_radius,
-                                            double gahter_max_photon_num, int width, int height,
-                                            ValueSampler<double>& sampler01)
+                                            double gahter_max_photon_num, int width, int height, double spp,
+                                            std::string filename)
             {
-                double max_radius_2;
-                for (const auto& p : point_map->GetData())
+                ValueSampler<double> sampler01(0, 1);
+                double max_radius = 0;
+                int devide_num = 1;
+                int tmp_devide_num = photon_count;
+                while (tmp_devide_num > 10000)
                 {
-                    max_radius_2 = std::max(max_radius_2, p.photon_radius_2);
+                    devide_num *= 100;
+                    tmp_devide_num /= 100;
+                    /* code */
                 }
-                std::cout << "Rmax2 = " << max_radius_2 << std::endl;
 
+                Color* image = new Color[width * height];
                 for (size_t i = 0; i < photon_count; i++)
                 {
-                    create_photon(spheres[LightID], sampler01, point_map, max_radius_2, gahter_max_photon_num);
+                    create_photon(spheres[LightID], sampler01, point_map, gather_radius, gahter_max_photon_num);
+
+                    if (i % devide_num == 0)
+                    {
+                        // double max_radius_2 = 0;
+                        // for (const auto& p : point_map->GetData())
+                        // {
+                        //     max_radius_2 = std::max(max_radius_2, p.photon_radius_2);
+                        // }
+                        // max_radius = std::sqrt(max_radius_2);
+                        std::cout << "Photon Tracing (i = " << i << ") " << (100.0 * i / (photon_count - 1)) << "%"
+                                  << std::endl;
+                        //                    std::cout << "Rmax = " << max_radius << std::endl;
+
+                        if (i % (devide_num * 10) == 0)
+                        {
+                            std::cout << "Rendering..." << std::endl;
+                            for (size_t i = 0; i < width * height; i++)
+                            {
+                                image[i] = Color();
+                            }
+                            for (auto node : point_map->GetData())
+                            {
+                                // if (node.photon_count > 0)
+                                // {
+                                image[node.index] =
+                                    image[node.index] +
+                                    (node.emission + node.weight * node.accumulated_flux *
+                                                         (1.0 / (M_PI * node.photon_radius_2 * (i + 1)))) /
+                                        spp;
+                                //                            }
+                            }
+
+                            save_ppm_file(filename + "_" + std::to_string(i) + ".ppm", image, width, height);
+                            save_hdr_file(filename + "_" + std::to_string(i) + ".hdr", image, width, height);
+                            //                    save_hdr_file(filename + "_" + std::to_string(i) + ".hdr", image,
+                            //                    width, height);
+                            std::cout << "Done Rendering" << std::endl;
+                        }
+                    }
                 }
             };
+
+            PointMap point_map;
+
+            void eye_pass(ValueSampler<double>& sampler01)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    std::cout << "Creating Point Tracing Map (y = " << y << ") " << (100.0 * y / (height - 1)) << "%"
+                              << std::endl;
+
+                    for (int x = 0; x < width; x++)
+                    {
+                        const int image_index = (height - y - 1) * width + x;
+                        for (int sy = 0; sy < supersamples; sy++)
+                        {
+                            for (int sx = 0; sx < supersamples; sx++)
+                            {
+                                // 一つのサブピクセルあたりsamples回サンプリングする
+                                for (int s = 0; s < samples; s++)
+                                {
+                                    create_point(camera.get_ray(x, y, sx, sy), sampler01, 0, 1.0, &point_map,
+                                                 image_index);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             int render(const std::string& filename, const int width, const int height, const int samples,
                        const int supersamples, int photon_num, double gather_photon_radius, int gahter_max_photon_num,
                        int eye_pass_count = 100)
             {
-                // // カメラ位置
-                // const Vec camera_position = Vec(50.0, 52.0, 220.0);
-                // const Vec camera_dir = normalize(Vec(0.0, -0.04, -1.0));
-                // const Vec camera_up = Vec(0.0, 1.0, 0.0);
+                Color* image = new Color[width * height];
+                int spp = samples * (supersamples * supersamples);
 
-                // // ワールド座標系でのスクリーンの大きさ
-                // const double screen_width = 30.0 * width / height;
-                // const double screen_height = 30.0;
-                // // スクリーンまでの距離
-                // const double screen_dist = 40.0;
-                // // スクリーンを張るベクトル
-                // const Vec screen_x = normalize(cross(camera_dir, camera_up)) * screen_width;
-                // const Vec screen_y = normalize(cross(screen_x, camera_dir)) * screen_height;
-                // const Vec screen_center = camera_position + camera_dir * screen_dist;
-
-                Color* image = new Color[PixelCount];
-                imageidx_pointidx = new int[PixelCount];
-                for (size_t i = 0; i < PixelCount; i++)
-                {
-                    imageidx_pointidx[i] = -1;
-                }
-                std::vector<ProgressiveIntersection> hitpoint_list;
-
-                std::cout << width << "x" << height << " " << samples << " spp" << std::endl;
-
-                PointMap point_map;
+                std::cout << width << "x" << height << " " << spp << " spp" << std::endl;
 
                 //            create_pointmap(width, height, &point_map, samples);
 
@@ -661,70 +652,31 @@ namespace photonmap
                 // }
 
                 ValueSampler<double> sampler01(0, 1);
-
-                std::cout << "Creating Point..." << std::endl;
-                reset_emit_container();
+                eye_pass(sampler01);
 
                 for (int i = 0; i < eye_pass_count; i++)
                 {
-                    for (int y = 0; y < height; y++)
-                    {
-                        // std::cout << "Creating Point Tracing Map (y = " << y << ") " << (100.0 * y / (height - 1))
-                        //           << "%" << std::endl;
-
-                        for (int x = 0; x < width; x++)
-                        {
-                            const int image_index = (height - y - 1) * width + x;
-                            for (int sy = 0; sy < supersamples; sy++)
-                            {
-                                for (int sx = 0; sx < supersamples; sx++)
-                                {
-                                    // 一つのサブピクセルあたりsamples回サンプリングする
-                                    for (int s = 0; s < samples; s++)
-                                    {
-                                        create_point(camera.get_ray(x, y, sx, sy), sampler01, 0, 1, &point_map,
-                                                     image_index);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     std::cout << "Creating KDTree..." << std::endl;
                     point_map.CreateKDtree();
-                    std::cout << "Done Creating KDTree" << std::endl;
-
-                    update_photons_with_render(photon_num, &point_map, gather_photon_radius, gahter_max_photon_num,
-                                               width, height, sampler01);
-                    //            update_photons(photon_num, &point_map, gather_photon_radius, gahter_max_photon_num);
-                    std::cout << "Done Emitting Photon" << std::endl;
-
+                    std::cout << "Emitting Photon..." << std::endl;
+                    // update_photons_with_render(photon_num, &point_map, gather_photon_radius, gahter_max_photon_num,
+                    //                            width, height, spp, filename);
+                    update_photons(photon_num, &point_map, gather_photon_radius, gahter_max_photon_num);
                     std::cout << "Rendering..." << std::endl;
-
-                    for (size_t i = 0; i < PixelCount; i++)
+                    for (size_t i = 0; i < width * height; i++)
                     {
-                        image[i] = emit_container[i];
-                        //     image[i] = Color();
+                        image[i] = Color();
                     }
-
                     for (auto node : point_map.GetData())
                     {
-                        // image[node.index] =
-                        //     node.emission + node.weight * node.accumulated_flux *
-                        //                         (1.0 / (M_PI * node.photon_radius_2 * ((i + 1) * photon_num)));
                         image[node.index] =
-                            image[node.index] + node.weight * node.accumulated_flux *
-                                                    (1.0 / (M_PI * node.photon_radius_2 * ((i + 1) * photon_num)));
-                        if (node.index == 5000)
-                        {
-                            std::cout << node.position << std::endl;
-                        }
+                            image[node.index] +
+                            (node.emission + node.weight * node.accumulated_flux *
+                                                 (1.0 / (M_PI * node.photon_radius_2 * i * photon_num))) /
+                                spp;
                     }
-
                     save_ppm_file(filename + "_" + std::to_string(i) + ".ppm", image, width, height);
                     save_hdr_file(filename + "_" + std::to_string(i) + ".hdr", image, width, height);
-
-                    std::cout << "Done Rendering" << std::endl;
                 }
 
                 // 出力
@@ -734,5 +686,5 @@ namespace photonmap
                 return 0;
             }
         };
-    }  // namespace sppm
+    }  // namespace stochasticppm
 }  // namespace photonmap

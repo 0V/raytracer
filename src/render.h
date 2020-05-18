@@ -10,7 +10,7 @@
 
 namespace edupt
 {
-    int render_dof(const int width, const int height, const int samples, const int supersamples, double focus)
+    int render_dof(const int width, const int height, const int samples, const int supersamples, double focus, double aperture)
     {
         // カメラ位置
         const Vec camera_position = Vec(50.0, 52.0, 220.0);
@@ -34,7 +34,7 @@ namespace edupt
 
         std::cout << width << "x" << height << " " << samples * (supersamples * supersamples) << " spp" << std::endl;
         DoFCamera camera(width, height, screen_height, screen_dist, camera_position, camera_dir, camera_up,
-                         supersamples, 2, focus, engine_);
+                         supersamples, aperture, focus, engine_);
         // PinholeCamera camera(width, height, screen_height, screen_dist, camera_position, camera_dir, camera_up,
         //                  supersamples);
 

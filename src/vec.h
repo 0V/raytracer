@@ -2,6 +2,7 @@
 #define _VEC_H_
 
 #include <cmath>
+#include <iostream>
 
 struct Vec
 {
@@ -23,14 +24,22 @@ inline const Vec cross(const Vec &v1, const Vec &v2)
     return Vec((v1.y * v2.z) - (v1.z * v2.y), (v1.z * v2.x) - (v1.x * v2.z), (v1.x * v2.y) - (v1.y * v2.x));
 }
 
+std::ostream &operator<<(std::ostream &stream, const Vec &value)
+
+{
+    stream << value.x << "," << value.y << "," << value.z;
+    return stream;
+};
+
 namespace photonmap
 {
     namespace utility
     {
-        Vec reflection(const Vec& incident, const Vec& normal){
+        Vec reflection(const Vec &incident, const Vec &normal)
+        {
             return incident - normal * 2.0 * dot(normal, incident);
         }
-    }
+    }  // namespace utility
 }  // namespace photonmap
 
 #endif
