@@ -41,16 +41,12 @@ namespace edupt
         const auto r3 = sqrt(1.0 - r2 * r2);
         const auto light_pos = light.position + (light.radius + EPS) * normalize(Vec(r3 * cos(r1), r3 * sin(r1), r2));
 
-        // ライトベクトル.
         auto light_dir = light_pos - isect.hitpoint.position;
 
-        // ライトへの距離の2乗
         auto light_dist2 = dot(light_dir, light_dir);
 
-        // 正規化.
         light_dir = normalize(light_dir);
 
-        // ライトの法線ベクトル.
         auto light_normal = normalize(light_pos - light.position);
 
         auto dot0 = std::abs(dot(orienting_normal, light_dir));
@@ -59,11 +55,7 @@ namespace edupt
 
         Intersection shadow_isect;
         Ray shadow_ray(isect.hitpoint.position, light_dir);
-
-        // シャドウレイを発射.
         auto hit = intersect_scene(shadow_ray, &shadow_isect);
-
-        // ライトのみと衝突した場合のみ寄与を取る.
         auto hit_light = hit && (shadow_isect.object_id == LightID);
         if (hit_light)
         {

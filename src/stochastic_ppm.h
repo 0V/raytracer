@@ -156,7 +156,7 @@ namespace photonmap
                 }
             }
 
-            Color create_point_loop(const Ray& input_ray, ValueSampler<double>* rnd)
+            Color create_point_loop(const Ray& input_ray, ValueSampler<double>* rnd, PointMap* point_map, int index)
             {
                 const double MaxDepth = depth_threshold;
                 int depth = -1;
@@ -189,7 +189,7 @@ namespace photonmap
 
                     if (direct)
                     {
-                        rad = rad + multiply(weight, now_object.emission);
+                        emit_container[index] = emit_container[index] + multiply(weight, now_object.emission);
                     }
 
                     direct = now_object.reflection_type != REFLECTION_TYPE_DIFFUSE;
@@ -213,7 +213,7 @@ namespace photonmap
                         {
                             auto est = next_event_est(intersection, spheres[LightID], orienting_normal, *rnd);
 
-                            rad = rad + multiply(weight, est);
+                            emit_container[index] = emit_container[index] + multiply(weight, est);
 
                             // orienting_normalの方向を基準とした正規直交基底(w, u,
                             // v)を作る。この基底に対する半球内で次のレイを飛ばす。
@@ -1058,8 +1058,9 @@ namespace photonmap
                             int sy = sampler01.sample() * supersamples;
                             for (int s = 0; s < samples; s++)
                             {
-                                create_point(camera.get_ray(x, y, sx, sy), sampler01, 0, 1, &point_map, image_index,
-                                             false);
+                                // create_point(camera.get_ray(x, y, sx, sy), sampler01, 0, 1, &point_map, image_index,
+                                //              false);
+                                create_point_loop(camera.get_ray(x, y, sx, sy), sampler01, &point_map, image_index);
                             }
                         }
                     }
