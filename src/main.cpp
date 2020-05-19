@@ -15,8 +15,8 @@ int main(int argc, char **argv)
 
     // 640x480の画像、(2x2) * 4 sample / pixel
     // edupt::render(640, 480, 4, 2);
-    constexpr int width = 640;
-    constexpr int height = 480;
+    constexpr int width = 320;
+    constexpr int height = 240;
     int samples = 100;
     int supersamples = 4;
     int photon_num = 50000;
@@ -75,11 +75,11 @@ int main(int argc, char **argv)
 
     ss << "image_" << scene_name << "_ppm101_" << width << "_" << height << "_" << samples << "_" << supersamples << "_"
        << photon_num << "_" << gather_photon_radius << "_" << gahter_max_photon_num << "_" << photonmap_num;
-    // return photonmap::progressive2::render(ss.str(), width, height, samples, supersamples, photon_num,
-    //                                        gather_photon_radius, gahter_max_photon_num);
+   //  return photonmap::progressive2::render(ss.str(), width, height, samples, supersamples, photon_num,
+   //                                         gather_photon_radius, gahter_max_photon_num);
 
-    // return photonmap::progressive::render(ss.str(), width, height, samples, supersamples, photon_num,
-    //                                       gather_photon_radius, gahter_max_photon_num);
+   //  return photonmap::progressive::render(ss.str(), width, height, samples, supersamples, photon_num,
+   //                                        gather_photon_radius, gahter_max_photon_num);
 
     photonmap::sppm::StochasticPpm<width, height> sppm(samples, supersamples);
     return sppm.render(ss.str(), width, height, samples, supersamples, photon_num, gather_photon_radius,

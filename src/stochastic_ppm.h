@@ -37,7 +37,7 @@ namespace photonmap
             const double INF = 1e20;
             const double EPS = 1e-6;
             int min_depth = 5;
-            int depth_threshold = 64;
+            int depth_threshold = 24;
             double alpha = 0.7;            // the alpha parameter of PPM
             double initial_radius_2 = 25;  // the alpha parameter of PPM
             int* imageidx_pointidx;
@@ -93,15 +93,18 @@ namespace photonmap
             }
             struct ProgressiveIntersection
             {
-                Color accumulated_flux;
+                // UN USED
                 Color emission;
+
+                // SHARED
+                Color accumulated_flux;
+                int index;
+                int photon_count;
+                double photon_radius_2;  // photon_radius^2
 
                 Intersection intersection;
                 Vec position;
                 double weight;
-                double photon_radius_2;  // photon_radius^2
-                int photon_count;
-                int index;
                 ProgressiveIntersection(Intersection intersection_, double weight_, double photon_radius_2_,
                                         int photon_count_, int index_, const Color& emission_)
                     : intersection(intersection_),
@@ -152,6 +155,161 @@ namespace photonmap
                     emit_container[i] = Color();
                 }
             }
+
+            Color create_point_loop(const Ray& input_ray, ValueSampler<double>* rnd)
+            {
+                const double MaxDepth = depth_threshold;
+                int depth = -1;
+                bool direct = true;
+                Color weight(1, 1, 1);
+                Color rad(0, 0, 0);
+
+                Ray ray(input_ray.org, input_ray.dir);
+
+                while (true)
+                {
+                    depth++;
+                    Intersection intersection;
+                    // シーンと交差判定
+                    if (!intersect_scene(ray, &intersection))
+                    {
+                        break;
+                    }
+
+                    const Sphere& now_object = spheres[intersection.object_id];
+                    const Hitpoint& hitpoint = intersection.hitpoint;
+                    const Vec orienting_normal =
+                        dot(hitpoint.normal, ray.dir) < 0.0
+                            ? hitpoint.normal
+                            : (-1.0 * hitpoint.normal);  // 交差位置の法線（物体からのレイの入出を考慮）
+                    // 色の反射率最大のものを得る。ロシアンルーレットで使う。
+                    // ロシアンルーレットの閾値は任意だが色の反射率等を使うとより良い。
+                    double russian_roulette_probability =
+                        std::max(now_object.color.x, std::max(now_object.color.y, now_object.color.z));
+
+                    if (direct)
+                    {
+                        rad = rad + multiply(weight, now_object.emission);
+                    }
+
+                    direct = now_object.reflection_type != REFLECTION_TYPE_DIFFUSE;
+
+                    // 反射回数が一定以上になったらロシアンルーレットの確率を急上昇させる。（スタックオーバーフロー対策）
+                    if (depth > MaxDepth) russian_roulette_probability *= std::pow(0.5, depth - MaxDepth);
+
+                    // ロシアンルーレットを実行し追跡を打ち切るかどうかを判断する。
+                    // ただしDepth回の追跡は保障する。
+                    if (depth > kDepth)
+                    {
+                        if (rnd->sample() >= russian_roulette_probability) break;
+                    }
+                    else
+                        russian_roulette_probability = 1.0;  // ロシアンルーレット実行しなかった
+
+                    switch (now_object.reflection_type)
+                    {
+                        // 完全拡散面
+                        case REFLECTION_TYPE_DIFFUSE:
+                        {
+                            auto est = next_event_est(intersection, spheres[LightID], orienting_normal, *rnd);
+
+                            rad = rad + multiply(weight, est);
+
+                            // orienting_normalの方向を基準とした正規直交基底(w, u,
+                            // v)を作る。この基底に対する半球内で次のレイを飛ばす。
+                            Vec w, u, v;
+                            w = orienting_normal;
+                            if (fabs(w.x) >
+                                kEPS)  // ベクトルwと直交するベクトルを作る。w.xが0に近い場合とそうでない場合とで使うベクトルを変える。
+                                u = normalize(cross(Vec(0.0, 1.0, 0.0), w));
+                            else
+                                u = normalize(cross(Vec(1.0, 0.0, 0.0), w));
+                            v = cross(w, u);
+                            // コサイン項を使った重点的サンプリング
+                            const double r1 = 2 * kPI * rnd->sample();
+                            const double r2 = rnd->sample(), r2s = sqrt(r2);
+                            Vec dir = normalize((u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1.0 - r2)));
+
+                            ray = Ray(hitpoint.position, dir);
+                            weight = multiply(weight, now_object.color / russian_roulette_probability);
+                        }
+                        break;
+
+                        // 完全鏡面
+                        case REFLECTION_TYPE_SPECULAR:
+                        {
+                            ray =
+                                Ray(hitpoint.position, ray.dir - hitpoint.normal * 2.0 * dot(hitpoint.normal, ray.dir));
+                            weight = multiply(weight, now_object.color / russian_roulette_probability);
+                        }
+                        break;
+
+                        // 屈折率kIorのガラス
+                        case REFLECTION_TYPE_REFRACTION:
+                        {
+                            const Ray reflection_ray =
+                                Ray(hitpoint.position, ray.dir - hitpoint.normal * 2.0 * dot(hitpoint.normal, ray.dir));
+                            const bool into = dot(hitpoint.normal, orienting_normal) >
+                                              0.0;  // レイがオブジェクトから出るのか、入るのか
+
+                            // Snellの法則
+                            const double nc = 1.0;   // 真空の屈折率
+                            const double nt = kIor;  // オブジェクトの屈折率
+                            const double nnt = into ? nc / nt : nt / nc;
+                            const double ddn = dot(ray.dir, orienting_normal);
+                            const double cos2t = 1.0 - nnt * nnt * (1.0 - ddn * ddn);
+
+                            if (cos2t < 0.0)
+                            {  // 全反射
+                                ray = reflection_ray;
+                                weight = multiply(weight, now_object.color / russian_roulette_probability);
+                                break;
+                            }
+
+                            // 屈折の方向
+                            const Ray refraction_ray =
+                                Ray(hitpoint.position, normalize(ray.dir * nnt - hitpoint.normal * (into ? 1.0 : -1.0) *
+                                                                                     (ddn * nnt + sqrt(cos2t))));
+
+                            // SchlickによるFresnelの反射係数の近似を使う
+                            const double a = nt - nc, b = nt + nc;
+                            const double R0 = (a * a) / (b * b);
+
+                            const double c = 1.0 - (into ? -ddn : dot(refraction_ray.dir, -1.0 * orienting_normal));
+                            const double Re =
+                                R0 +
+                                (1.0 - R0) *
+                                    pow(c,
+                                        5.0);  // 反射方向の光が反射してray.dirの方向に運ぶ割合。同時に屈折方向の光が反射する方向に運ぶ割合。
+                            const double nnt2 = pow(
+                                into ? nc / nt : nt / nc,
+                                2.0);  // レイの運ぶ放射輝度は屈折率の異なる物体間を移動するとき、屈折率の比の二乗の分だけ変化する。
+                            const double Tr = (1.0 - Re) * nnt2;  // 屈折方向の光が屈折してray.dirの方向に運ぶ割合
+
+                            // 一定以上レイを追跡したら屈折と反射のどちらか一方を追跡する。（さもないと指数的にレイが増える）
+                            // ロシアンルーレットで決定する。
+                            const double probability = 0.25 + 0.5 * Re;
+
+                            if (rnd->sample() < probability)
+                            {  // 反射
+                                ray = reflection_ray;
+                                weight = multiply(weight,
+                                                  now_object.color * Re / (probability * russian_roulette_probability));
+                            }
+                            else
+                            {
+                                ray = refraction_ray;
+                                weight = multiply(weight, now_object.color * Tr /
+                                                              ((1.0 - probability) * russian_roulette_probability));
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                return rad;
+            }
+
             void create_photon(const Sphere& light_sphere, ValueSampler<double>& sampler01, PointMap* point_map,
                                double gather_radius, double gahter_max_photon_num)
             {
@@ -215,13 +373,15 @@ namespace photonmap
                                 std::vector<typename PointMap::ElementForQueue> points;
                                 points.reserve(result_queue.size());
 
-                                //                        if (result_queue.size() > 0) std::cout << result_queue.size();
+                                //                        if (result_queue.size() > 0) std::cout <<
+                                result_queue.size();
                                 while (!result_queue.empty())
                                 {
                                     typename PointMap::ElementForQueue p = result_queue.top();
                                     result_queue.pop();
                                     points.push_back(p);
-                                    //                            max_distance2 = std::max(max_distance2, p.distance2);
+                                    //                            max_distance2 = std::max(max_distance2,
+                                    // p.distance2);
                                 }
 
                                 for (auto& point : points)
@@ -356,49 +516,221 @@ namespace photonmap
                 }
             }
 
-            Color next_event_est(const Intersection& isect, const Sphere& light, const Vec& orienting_normal,
-                                 double weight, ValueSampler<double>& sampler01)
-            {
-                auto light_pos = light.position + normalize(sphere_sampling(sampler01)) * (light.radius + EPS);
+            // void create_point(const Ray& ray, ValueSampler<double>& sampler01, const int depth, double weight,
+            //                   PointMap* point_map, int index, bool is_specular_bounce)
+            // {
+            //     Intersection intersection;
+            //     // シーンと交差判定
+            //     if (!intersect_scene(ray, &intersection)) return;
 
-                // ライトへのベクトル
-                auto light_dir = light_pos - isect.hitpoint.position;
+            //     const Sphere& now_object = spheres[intersection.object_id];
+            //     const Hitpoint& hitpoint = intersection.hitpoint;
+            //     const Vec orienting_normal =
+            //         dot(hitpoint.normal, ray.dir) < 0.0 ? hitpoint.normal : (-1.0 * hitpoint.normal);
 
-                // ライトへの距離の2乗
-                auto light_dist2 = dot(light_dir, light_dir);
+            //     // 交差位置の法線（物体からのレイの入出を考慮）
+            //     // 色の反射率最大のものを得る。ロシアンルーレットで使う。
+            //     // ロシアンルーレットの閾値は任意だが色の反射率等を使うとより良い。
+            //     double russian_roulette_probability =
+            //         std::max(now_object.color.x, std::max(now_object.color.y, now_object.color.z));
 
-                // 正規化.
-                light_dir = normalize(light_dir);
+            //     // 反射回数が一定以上になったらロシアンルーレットの確率を急上昇させる。（スタックオーバーフロー対策）
+            //     if (depth > depth_threshold) russian_roulette_probability *= std::pow(0.5, depth - depth_threshold);
 
-                // ライトの法線ベクトル
-                auto light_normal = normalize(light_pos - light.position);
+            //     // ロシアンルーレットを実行し追跡を打ち切るかどうかを判断する。
+            //     // ただしDepth回の追跡は保障する。
+            //     if (depth > min_depth)
+            //     {
+            //         if (sampler01.sample() >= russian_roulette_probability) return;
+            //     }
+            //     else
+            //     {
+            //         russian_roulette_probability = 1.0;  // ロシアンルーレット実行しなかった
+            //     }
 
-                auto dot0 = dot(orienting_normal, light_dir);
-                auto dot1 = dot(light_normal, -1 * light_dir);
-                auto rad2 = light.radius * light.radius;
+            //     // if (index == 56434 || index == 56435 || index == 56436 || index == 56437 || index == 56114 ||
+            //     //     index == 55794 || index == 55474 || index == 55475 || index == 56115 || index == 56116 ||
+            //     //     index == 56117 || index == 55797 || index == 55796 || index == 55795 || index == 55476 ||
+            //     //     index == 55477 || index == 54834 || index == 55154 || index == 54835 || index == 55155 ||
+            //     //     index == 54836 || index == 55156 || index == 54837 || index == 55157 || index == 56440 ||
+            //     //     index == 56439 || index == 56438 || index == 56120 || index == 56119 || index == 55800 ||
+            //     //     index == 55799 || index == 56118 || index == 55798 || index == 55480 || index == 55479 ||
+            //     //     index == 55478 || index == 54838 || index == 55158 || index == 54839 || index == 55159 ||
+            //     //     index == 54840 || index == 55160)
+            //     // {
+            //     //     std::cout << index << " " << depth << " " << now_object.reflection_type << now_object.color
+            //     //               << intersection.object_id << std::endl;
+            //     // }
+            //     if (index == 49196)
+            //     {
+            //         std::cout << index << " " << depth << " " << now_object.reflection_type << " " <<
+            //         now_object.color
+            //                   << " " << intersection.object_id << std::endl;
+            //     }
 
-                // 寄与が取れる場合.
-                if (dot0 >= 0 && dot1 > 0 && light_dist2 >= rad2)
-                {
-                    Intersection shadow_isect;
-                    double shadow_t;
-                    int shadow_id;
-                    Ray shadow_ray(isect.hitpoint.position, light_dir);
+            //     switch (now_object.reflection_type)
+            //     {
+            //         // 完全拡散面
+            //         case REFLECTION_TYPE_DIFFUSE:
+            //         {
+            //             auto p_it = imageidx_pointidx[index];
 
-                    // シャドウレイを発射
-                    auto is_hit = intersect_scene(shadow_ray, &shadow_isect);
+            //             if (depth == 0 || is_specular_bounce)
+            //             {
+            //                 // if (dot(now_object.emission, now_object.emission) > 0)
+            //                 // {
+            //                 //     std::cout << now_object.emission << std::endl;
+            //                 // }
+            //                 emit_container[index] = emit_container[index] + weight * now_object.emission;
+            //             }
 
-                    // ライトのみと衝突した場合のみ寄与を取る.
-                    if (is_hit && shadow_isect.object_id == LightID)
-                    {
-                        auto G = dot0 * dot1 / light_dist2;
-                        auto pdf = 1.0 / (4.0 * M_PI * rad2);
-                        return weight * multiply(light.emission, spheres[isect.object_id].color) * G / M_PI / pdf;
-                    }
-                }
+            //             // emit_container[index] =
+            //             //     emit_container[index] +
+            //             //     next_event_est(intersection, spheres[LightID], orienting_normal, weight, sampler01);
 
-                return Color();
-            }
+            //             // Not Found
+            //             if (p_it < 0)
+            //             {
+            //                 std::cout << point_map->Size() << std::endl;
+            //                 imageidx_pointidx[index] = 1;
+            //                 point_map->AddData(
+            //                     ProgressiveIntersection(intersection, weight / russian_roulette_probability,
+            //                                             initial_radius_2, 0, index, now_object.emission));
+            //             }
+            //             else  // Found Point
+            //             {
+            //                 auto& point_list = point_map->GetData();
+            //                 for (auto& point : point_list)
+            //                 {
+            //                     if (point.index == index)
+            //                     {
+            //                         point.intersection = intersection;
+            //                         point.position = intersection.hitpoint.position;
+            //                         point.weight = weight / russian_roulette_probability;
+            //                         point.emission = now_object.emission;
+            //                         // emit_container[index] = emit_container[index] +
+            //                         //                         now_object.emission * weight /
+            //                         //                         russian_roulette_probability;
+
+            //                         break;
+            //                     }
+            //                 }
+            //             }
+            //             return;
+            //         }
+            //         break;
+            //         // 完全鏡面
+            //         case REFLECTION_TYPE_SPECULAR:
+            //         {
+            //             //                        std::cout << index << std::endl;
+            //             // 完全鏡面なのでレイの反射方向は決定的。
+            //             // ロシアンルーレットの確率で除算するのは上と同じ。
+            //             create_point(Ray(hitpoint.position, reflection(ray.dir, hitpoint.normal)), sampler01, depth +
+            //             1,
+            //                          weight / russian_roulette_probability, point_map, index, true);
+            //         }
+            //         break;
+
+            //         // 屈折率kIorのガラス
+            //         case REFLECTION_TYPE_REFRACTION:
+            //         {
+            //             const Ray reflection_ray = Ray(hitpoint.position, reflection(ray.dir, hitpoint.normal));
+            //             const bool into =
+            //                 dot(hitpoint.normal, orienting_normal) > 0.0;  //
+            //                 レイがオブジェクトから出るのか、入るのか
+
+            //             // Snellの法則
+            //             const double nc = 1.0;   // 真空の屈折率
+            //             const double nt = kIor;  // オブジェクトの屈折率
+            //             const double nnt = into ? nc / nt : nt / nc;
+            //             const double ddn = dot(ray.dir, orienting_normal);
+            //             const double cos2t = 1.0 - nnt * nnt * (1.0 - ddn * ddn);
+            //             if (cos2t < 0.0)
+            //             {  // 全反射
+            //                 std::cout << " ALL " << index << " " << depth << " " << now_object.reflection_type << " "
+            //                           << now_object.color << " " << intersection.object_id << std::endl;
+
+            //                 create_point(reflection_ray, sampler01, depth + 1, weight / russian_roulette_probability,
+            //                              point_map, index, is_specular_bounce);
+            //                 return;
+            //             }
+            //             // if (cos2t < 0.01)
+            //             // {  // 全反射
+            //             //     std::cout << " ALL??? cos2t " << cos2t << " " << index << " " << depth << " "
+            //             //               << now_object.reflection_type << " " << now_object.color << " "
+            //             //               << intersection.object_id << std::endl;
+            //             //     create_point(reflection_ray, sampler01, depth + 1, weight /
+            //             russian_roulette_probability,
+            //             //                  point_map, index, is_specular_bounce);
+            //             //     return;
+            //             // }
+            //             // 屈折の方向
+            //             const Ray refraction_ray =
+            //                 Ray(hitpoint.position, normalize(ray.dir * nnt - hitpoint.normal * (into ? 1.0 : -1.0) *
+            //                                                                      (ddn * nnt + std::sqrt(cos2t))));
+
+            //             // SchlickによるFresnelの反射係数の近似
+            //             const double a = nt - nc, b = nt + nc;
+            //             const double R0 = (a * a) / (b * b);
+
+            //             const double c = 1.0 - (into ? -ddn : dot(refraction_ray.dir, hitpoint.normal));
+            //             //
+            //             反射方向の光が反射してray.dirの方向に運ぶ割合。同時に屈折方向の光が反射する方向に運ぶ割合。
+            //             const double Re = R0 + (1.0 - R0) * std::pow(c, 5.0);
+            //             // レイの運ぶ放射輝度は屈折率の異なる物体間を移動するとき、屈折率の比の二乗の分だけ変化する。
+            //             const double nnt2 = std::pow(into ? nc / nt : nt / nc, 2.0);
+            //             const double Tr = (1.0 - Re) * nnt2;  // 屈折方向の光が屈折してray.dirの方向に運ぶ割合
+
+            //             //
+            //             一定以上レイを追跡したら屈折と反射のどちらか一方を追跡する。（さもないと指数的にレイが増える）
+            //             // ロシアンルーレットで決定する。
+            //             const double probability = 0.25 + 0.5 * Re;
+
+            //             // create_point(reflection_ray, sampler01, depth + 1, weight * Re /
+            //             // russian_roulette_probability,
+            //             //              point_map, index, true);
+            //             // create_point(refraction_ray, sampler01, depth + 1, weight * Tr /
+            //             // russian_roulette_probability,
+            //             //              point_map, index, true);
+            //             // return;
+
+            //             if (depth > 2)
+            //             {
+            //                 if (sampler01.sample() < probability)
+            //                 {  // 反射
+
+            //                     create_point(reflection_ray, sampler01, depth + 1,
+            //                                  weight * Re / (probability * russian_roulette_probability), point_map,
+            //                                  index, true);
+            //                     return;
+            //                 }
+            //                 else
+            //                 {  // 屈折
+            //                     is_specular_bounce = true;
+
+            //                     create_point(refraction_ray, sampler01, depth + 1,
+            //                                  weight * Tr / ((1.0 - probability) * russian_roulette_probability),
+            //                                  point_map, index, is_specular_bounce);
+            //                     return;
+            //                 }
+            //             }
+            //             else
+            //             {
+            //                 is_specular_bounce = true;
+
+            //                 // 屈折と反射の両方を追跡
+            //                 create_point(reflection_ray, sampler01, depth + 1,
+            //                              weight * Re / russian_roulette_probability, point_map, index, true);
+            //                 create_point(refraction_ray, sampler01, depth + 1,
+            //                              weight * Tr / russian_roulette_probability, point_map, index,
+            //                              is_specular_bounce);
+            //                 return;
+            //             }
+            //         }
+
+            //         break;
+            //     }
+            // }
 
             void create_point(const Ray& ray, ValueSampler<double>& sampler01, const int depth, double weight,
                               PointMap* point_map, int index, bool is_specular_bounce)
@@ -419,45 +751,22 @@ namespace photonmap
                     std::max(now_object.color.x, std::max(now_object.color.y, now_object.color.z));
 
                 // 反射回数が一定以上になったらロシアンルーレットの確率を急上昇させる。（スタックオーバーフロー対策）
-                if (depth > depth_threshold) russian_roulette_probability *= std::pow(0.5, depth - depth_threshold);
+                if (depth > kDepthLimit) russian_roulette_probability *= std::pow(0.5, depth - kDepthLimit);
 
                 // ロシアンルーレットを実行し追跡を打ち切るかどうかを判断する。
                 // ただしDepth回の追跡は保障する。
-                if (depth > min_depth)
+                if (depth > kDepth)
                 {
                     if (sampler01.sample() >= russian_roulette_probability) return;
                 }
                 else
-                {
                     russian_roulette_probability = 1.0;  // ロシアンルーレット実行しなかった
-                }
-
-                // if (index == 56434 || index == 56435 || index == 56436 || index == 56437 || index == 56114 ||
-                //     index == 55794 || index == 55474 || index == 55475 || index == 56115 || index == 56116 ||
-                //     index == 56117 || index == 55797 || index == 55796 || index == 55795 || index == 55476 ||
-                //     index == 55477 || index == 54834 || index == 55154 || index == 54835 || index == 55155 ||
-                //     index == 54836 || index == 55156 || index == 54837 || index == 55157 || index == 56440 ||
-                //     index == 56439 || index == 56438 || index == 56120 || index == 56119 || index == 55800 ||
-                //     index == 55799 || index == 56118 || index == 55798 || index == 55480 || index == 55479 ||
-                //     index == 55478 || index == 54838 || index == 55158 || index == 54839 || index == 55159 ||
-                //     index == 54840 || index == 55160)
-                // {
-                //     std::cout << index << " " << depth << " " << now_object.reflection_type << now_object.color
-                //               << intersection.object_id << std::endl;
-                // }
-                if (index == 67029)
-                {
-                    std::cout << index << " " << depth << " " << now_object.reflection_type << " " << now_object.color
-                              << " " << intersection.object_id << std::endl;
-                }
 
                 switch (now_object.reflection_type)
                 {
                     // 完全拡散面
                     case REFLECTION_TYPE_DIFFUSE:
                     {
-                        auto p_it = imageidx_pointidx[index];
-
                         if (depth == 0 || is_specular_bounce)
                         {
                             // if (dot(now_object.emission, now_object.emission) > 0)
@@ -466,19 +775,24 @@ namespace photonmap
                             // }
                             emit_container[index] = emit_container[index] + weight * now_object.emission;
                         }
+                        // point_map->AddData(ProgressiveIntersection(intersection, weight /
+                        // russian_roulette_probability,
+                        //                                            initial_radius_2, 0, index, now_object.emission));
 
-                        // emit_container[index] =
-                        //     emit_container[index] +
-                        //     next_event_est(intersection, spheres[LightID], orienting_normal, weight, sampler01);
+                        emit_container[index] =
+                            emit_container[index] +
+                            weight * edupt::next_event_est(intersection, spheres[LightID], orienting_normal, sampler01);
 
-                        // Not Found
+                        auto p_it = imageidx_pointidx[index];
+
                         if (p_it < 0)
                         {
-                            std::cout << point_map->Size() << std::endl;
                             imageidx_pointidx[index] = 1;
                             point_map->AddData(
                                 ProgressiveIntersection(intersection, weight / russian_roulette_probability,
                                                         initial_radius_2, 0, index, now_object.emission));
+
+                            return;
                         }
                         else  // Found Point
                         {
@@ -498,18 +812,18 @@ namespace photonmap
                                     break;
                                 }
                             }
+                            return;
                         }
-                        return;
                     }
                     break;
                     // 完全鏡面
                     case REFLECTION_TYPE_SPECULAR:
                     {
-                        //                        std::cout << index << std::endl;
                         // 完全鏡面なのでレイの反射方向は決定的。
                         // ロシアンルーレットの確率で除算するのは上と同じ。
                         create_point(Ray(hitpoint.position, reflection(ray.dir, hitpoint.normal)), sampler01, depth + 1,
                                      weight / russian_roulette_probability, point_map, index, true);
+                        return;
                     }
                     break;
 
@@ -526,24 +840,13 @@ namespace photonmap
                         const double nnt = into ? nc / nt : nt / nc;
                         const double ddn = dot(ray.dir, orienting_normal);
                         const double cos2t = 1.0 - nnt * nnt * (1.0 - ddn * ddn);
+
                         if (cos2t < 0.0)
                         {  // 全反射
-                            std::cout << " ALL " << index << " " << depth << " " << now_object.reflection_type << " "
-                                      << now_object.color << " " << intersection.object_id << std::endl;
-
                             create_point(reflection_ray, sampler01, depth + 1, weight / russian_roulette_probability,
                                          point_map, index, is_specular_bounce);
                             return;
                         }
-                        // if (cos2t < 0.01)
-                        // {  // 全反射
-                        //     std::cout << " ALL??? cos2t " << cos2t << " " << index << " " << depth << " "
-                        //               << now_object.reflection_type << " " << now_object.color << " "
-                        //               << intersection.object_id << std::endl;
-                        //     create_point(reflection_ray, sampler01, depth + 1, weight / russian_roulette_probability,
-                        //                  point_map, index, is_specular_bounce);
-                        //     return;
-                        // }
                         // 屈折の方向
                         const Ray refraction_ray =
                             Ray(hitpoint.position, normalize(ray.dir * nnt - hitpoint.normal * (into ? 1.0 : -1.0) *
@@ -564,41 +867,51 @@ namespace photonmap
                         // ロシアンルーレットで決定する。
                         const double probability = 0.25 + 0.5 * Re;
 
-                        create_point(reflection_ray, sampler01, depth + 1, weight * Re / russian_roulette_probability,
-                                     point_map, index, true);
-                        create_point(refraction_ray, sampler01, depth + 1, weight * Tr / russian_roulette_probability,
-                                     point_map, index, true);
+                        // 屈折と反射の両方を追跡
+                        if (sampler01.sample() < probability)
+                        {  // 反射
+
+                            create_point(reflection_ray, sampler01, depth + 1,
+                                         weight * Re / (probability * russian_roulette_probability), point_map, index,
+                                         true);
+                        }
+                        else
+                        {  // 屈折
+
+                            create_point(refraction_ray, sampler01, depth + 1,
+                                         weight * Tr / ((1.0 - probability) * russian_roulette_probability), point_map,
+                                         index, false);
+                        }
                         return;
 
-                        //     if (depth > 2)
-                        //     {
-                        //         if (sampler01.sample() < probability)
-                        //         {  // 反射
+                        if (depth > 1)
+                        {
+                            if (sampler01.sample() < probability)
+                            {  // 反射
 
-                        //             create_point(reflection_ray, sampler01, depth + 1,
-                        //                          weight * Re / (probability * russian_roulette_probability),
-                        //                          point_map, index);
-                        //             return;
-                        //         }
-                        //         else
-                        //         {  // 屈折
+                                create_point(reflection_ray, sampler01, depth + 1,
+                                             weight * Re / (probability * russian_roulette_probability), point_map,
+                                             index, true);
+                                return;
+                            }
+                            else
+                            {  // 屈折
 
-                        //             create_point(refraction_ray, sampler01, depth + 1,
-                        //                          weight * Tr / ((1.0 - probability) * russian_roulette_probability),
-                        //                          point_map, index);
-                        //             return;
-                        //         }
-                        //     }
-                        //     else
-                        //     {  // 屈折と反射の両方を追跡
-                        //         create_point(reflection_ray, sampler01, depth + 1,
-                        //                      weight * Re / russian_roulette_probability, point_map, index);
-                        //         create_point(refraction_ray, sampler01, depth + 1,
-                        //                      weight * Tr / russian_roulette_probability, point_map, index);
-                        //         return;
-                        // }
+                                create_point(refraction_ray, sampler01, depth + 1,
+                                             weight * Tr / ((1.0 - probability) * russian_roulette_probability),
+                                             point_map, index, false);
+                                return;
+                            }
+                        }
+                        else
+                        {  // 屈折と反射の両方を追跡
+                            create_point(reflection_ray, sampler01, depth + 1,
+                                         weight * Re / russian_roulette_probability, point_map, index, true);
+                            create_point(refraction_ray, sampler01, depth + 1,
+                                         weight * Tr / russian_roulette_probability, point_map, index, true);
+                            return;
+                        }
                     }
-
                     break;
                 }
             }
@@ -741,8 +1054,8 @@ namespace photonmap
 
                             // 一つのサブピクセルあたりsamples回サンプリングする
 
-                            int sx = sampler01.sample() * 4;
-                            int sy = sampler01.sample() * 4;
+                            int sx = sampler01.sample() * supersamples;
+                            int sy = sampler01.sample() * supersamples;
                             for (int s = 0; s < samples; s++)
                             {
                                 create_point(camera.get_ray(x, y, sx, sy), sampler01, 0, 1, &point_map, image_index,
@@ -768,7 +1081,7 @@ namespace photonmap
 
                         //     image[i] = Color();
                     }
-                    const int image_index_sample = (210 - 1) * width + 149;
+                    const int image_index_sample = 49196;
 
                     std::cout << image_index_sample << std::endl;
 
@@ -785,6 +1098,8 @@ namespace photonmap
                             std::cout << image[node.index] << std::endl;
                         }
                     }
+
+                    //                    image[image_index_sample] = Color(1, 0, 0);
 
                     save_ppm_file(filename + "_" + std::to_string(i) + ".ppm", image, width, height);
                     save_hdr_file(filename + "_" + std::to_string(i) + ".hdr", image, width, height);

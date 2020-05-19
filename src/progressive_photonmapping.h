@@ -91,203 +91,410 @@ namespace photonmap
             return Vec(std::sqrt(r3) * std::cos(r1), std::sqrt(r3) * std::sin(r1), r2);
         }
 
-        void create_photon(const Sphere& light_sphere, ValueSampler<double>& sampler01, PointMap* point_map,
-                           double gather_radius, double gahter_max_photon_num)
-        {
-            const Vec source_pos = light_sphere.position + ((light_sphere.radius + EPS) * sphere_sampling(sampler01));
-            const Vec source_dir = normalize(source_pos - light_sphere.position);
+//         void create_photon(const Sphere& light_sphere, ValueSampler<double>& sampler01, PointMap* point_map,
+//                            double gather_radius, double gahter_max_photon_num)
+//         {
+//             const Vec source_pos = light_sphere.position + ((light_sphere.radius + EPS) * sphere_sampling(sampler01));
+//             const Vec source_dir = normalize(source_pos - light_sphere.position);
 
-            // 光源上の点から半球サンプリングする
-            Vec w, u, v;
-            w = source_dir;
+//             // 光源上の点から半球サンプリングする
+//             Vec w, u, v;
+//             w = source_dir;
 
-            if (fabs(w.x) > 0.1)
+//             if (fabs(w.x) > 0.1)
+//             {
+//                 u = normalize(cross(Vec(0.0, 1.0, 0.0), w));
+//             }
+//             else
+//             {
+//                 u = normalize(cross(Vec(1.0, 0.0, 0.0), w));
+//             }
+//             v = cross(w, u);
+
+//             Vec light_dir = cosine_sampling(w, u, v, sampler01);
+
+//             Ray current_ray(source_pos, light_dir);
+
+//             Color current_flux = light_sphere.emission * 4.0 * std::pow(light_sphere.radius * M_PI, 2.0);
+
+//             bool trace_end = false;
+
+//             while (!trace_end)
+//             {
+//                 if (std::max(current_flux.x, std::max(current_flux.y, current_flux.z)) <= 0.0) break;
+
+//                 Intersection intersect_data;
+//                 if (!intersect_scene(current_ray, &intersect_data)) break;
+//                 const Sphere& obj = spheres[intersect_data.object_id];
+//                 // 物体に対する入射方向が表か裏かを確認する
+//                 const Vec orienting_normal = dot(intersect_data.hitpoint.normal, current_ray.dir) < 0.0
+//                                                  ? intersect_data.hitpoint.normal            // 物体外から入射
+//                                                  : (-1.0 * intersect_data.hitpoint.normal);  // 物体中から入射
+
+//                 switch (obj.reflection_type)
+//                 {
+//                     case edupt::REFLECTION_TYPE_DIFFUSE:
+//                     {
+//                         PointMap::ResultQueue result_queue;
+
+//                         PointMap::Query query(intersect_data.hitpoint.position, orienting_normal, gather_radius,
+//                                               gahter_max_photon_num);
+//                         point_map->SearchNearest(&result_queue, query);
+//                         // キューからフォトンを取り出しvectorに格納する
+//                         std::vector<PointMap::ElementForQueue> points;
+//                         points.reserve(result_queue.size());
+
+//                         //                        if (result_queue.size() > 0) std::cout << result_queue.size();
+//                         while (!result_queue.empty())
+//                         {
+//                             PointMap::ElementForQueue p = result_queue.top();
+//                             result_queue.pop();
+//                             points.push_back(p);
+//                             //                            max_distance2 = std::max(max_distance2, p.distance2);
+//                         }
+
+//                         for (auto& point : points)
+//                         {
+//                             if ((dot(point.point->intersection.hitpoint.normal, intersect_data.hitpoint.normal) > 1e-3))
+//                             {
+//                                 if (point.point->photon_count == 0)
+//                                 {
+//                                     point.point->photon_radius_2 =
+//                                         (intersect_data.hitpoint.position - point.point->position).length_squared();
+//                                     point.point->accumulated_flux =
+//                                         point.point->accumulated_flux + (multiply(obj.color, current_flux) / M_PI);
+
+//                                     point.point->photon_count++;
+//                                 }
+//                                 else
+//                                 {
+//                                     if (point.distance2 < point.point->photon_radius_2)
+//                                     {
+//                                         const int N = point.point->photon_count;
+//                                         const int M = 1;
+
+//                                         double g2 = (N + Alpha * M) / (N + M);
+//                                         point.point->photon_radius_2 = point.point->photon_radius_2 * g2;
+//                                         point.point->photon_count++;
+//                                         // point.point->accumulated_flux =
+//                                         //     obj.emission + (point.point->accumulated_flux +
+//                                         //                     multiply(point.point->weight, current_flux) / M_PI) *
+//                                         //                        g;
+//                                         point.point->accumulated_flux = (point.point->accumulated_flux +
+//                                                                          (multiply(obj.color, current_flux) / M_PI)) *
+//                                                                         g2;
+//                                     }
+//                                 }
+//                             }
+//                         }
+
+//                         // A Practical Guide to Global Illumination using Photon Mapsとは異なるが
+//                         // RGBの平均値を反射確率とする。
+//                         // TODO: Depthに応じて上げたい
+//                         const double probability = std::max(obj.color.x,std::max(obj.color.y,obj.color.z));
+//  //                       const double probability = (obj.color.x + obj.color.y + obj.color.z) / 3;
+//                         if (probability > sampler01.sample())
+//                         {
+//                             // 反射
+//                             // orienting_normalの方向を基準とした正規直交基底(w, u,
+//                             // v)を作り。この基底に対する半球内で次のレイを飛ばす。
+//                             Vec diffuse_w, diffuse_u, diffuse_v;
+//                             diffuse_w = orienting_normal;
+//                             if (fabs(diffuse_w.x) > 0.1)
+//                             {
+//                                 diffuse_u = normalize(cross(Vec(0.0, 1.0, 0.0), diffuse_w));
+//                             }
+//                             else
+//                             {
+//                                 diffuse_u = normalize(cross(Vec(1.0, 0.0, 0.0), diffuse_w));
+//                             }
+//                             diffuse_v = cross(diffuse_w, diffuse_u);
+//                             Vec dir = cosine_sampling(diffuse_w, diffuse_u, diffuse_v, sampler01);
+
+//                             current_ray = Ray(intersect_data.hitpoint.position, dir);
+//                             current_flux = multiply(current_flux, obj.color) / probability;
+//                         }
+//                         else
+//                         {  // 吸収
+//                             trace_end = true;
+//                         }
+//                     }
+//                     break;
+//                     case edupt::REFLECTION_TYPE_SPECULAR:
+//                     {
+//                         // 完全鏡面
+//                         current_ray = Ray(intersect_data.hitpoint.position,
+//                                           reflection(current_ray.dir, intersect_data.hitpoint.normal));
+//                         current_flux = multiply(current_flux, obj.color);
+//                     }
+//                     break;
+//                     case edupt::REFLECTION_TYPE_REFRACTION:
+//                     {
+//                         // 屈折
+//                         Ray reflection_ray = Ray(intersect_data.hitpoint.position,
+//                                                  reflection(current_ray.dir, intersect_data.hitpoint.normal));
+//                         // レイの屈折方向がオブジェクトの内側方向か外側方向かを確認する
+//                         const bool is_into = dot(intersect_data.hitpoint.normal, orienting_normal) >
+//                                              0.0;  // レイがオブジェクトから出るのか、入るのか
+
+//                         // Snellの法則
+//                         const double nc = 1.0;  // 真空の屈折率
+//                         // edupt::kIor オブジェクトの屈折率
+//                         const double nt = edupt::kIor;  // オブジェクトの屈折率
+//                         const double nnt = is_into ? nc / nt : nt / nc;
+//                         const double ddn = dot(current_ray.dir, orienting_normal);
+//                         const double cos2t = 1.0 - nnt * nnt * (1.0 - ddn * ddn);
+
+//                         if (cos2t < 0.0)
+//                         {  // 全反射
+//                             current_ray = reflection_ray;
+//                             current_flux = multiply(current_flux, obj.color);
+//                             continue;
+//                         }
+//                         // 屈折していく方向
+//                         Vec tdir =
+//                             normalize(current_ray.dir * nnt - intersect_data.hitpoint.normal * (is_into ? 1.0 : -1.0) *
+//                                                                   (ddn * nnt + std::sqrt(cos2t)));
+
+//                         // SchlickによるFresnelの反射係数の近似
+//                         const double a = nt - nc, b = nt + nc;
+//                         const double R0 = (a * a) / (b * b);
+//                         const double c = 1.0 - (is_into ? -ddn : dot(tdir, intersect_data.hitpoint.normal));
+//                         const double Re = R0 + (1.0 - R0) * pow(c, 5.0);
+//                         const double Tr = 1.0 - Re;  // 屈折光の運ぶ光の量
+//                         const double probability = Re;
+
+//                         // 屈折と反射のどちらか一方を追跡する。
+//                         // ロシアンルーレットで決定する。
+//                         if (sampler01.sample() < probability)
+//                         {  // 反射
+//                             current_ray = reflection_ray;
+//                             // Fresnel係数Reを乗算し、ロシアンルーレット確率prob.で割る。
+//                             // 今、prob.=Reなので Re / prob. = 1.0 となる。
+//                             // よって、current_flux = Multiply(current_flux, obj.color) * Re / probability;
+//                             // が以下の式になる。 屈折の場合も同様。
+//                             current_flux = multiply(current_flux, obj.color);
+//                             continue;
+//                         }
+//                         else
+//                         {  // 屈折
+//                             current_ray = Ray(intersect_data.hitpoint.position, tdir);
+//                             current_flux = multiply(current_flux, obj.color);
+//                             continue;
+//                         }
+//                     }
+
+//                     break;
+//                 }
+//             }
+//         }
+
+
+            void create_photon(const Sphere& light_sphere, ValueSampler<double>& sampler01, PointMap* point_map,
+                               double gather_radius, double gahter_max_photon_num)
             {
-                u = normalize(cross(Vec(0.0, 1.0, 0.0), w));
-            }
-            else
-            {
-                u = normalize(cross(Vec(1.0, 0.0, 0.0), w));
-            }
-            v = cross(w, u);
+                // 光源からフォトンを発射する
+                // 光源は球。球の一点をサンプリングする
+                const double r1 = 2 * M_PI * sampler01.sample();
+                const double r2 = 1.0 - 2.0 * sampler01.sample();
+                const double r3 = 1.0 - r2 * r2;
 
-            Vec light_dir = cosine_sampling(w, u, v, sampler01);
+                const Vec source_pos =
+                    light_sphere.position + ((light_sphere.radius + EPS) * sphere_sampling(sampler01));
+                const Vec source_dir = normalize(source_pos - light_sphere.position);
 
-            Ray current_ray(source_pos, light_dir);
+                // 光源上の点から半球サンプリングする
+                Vec w, u, v;
+                w = source_dir;
 
-            Color current_flux = light_sphere.emission * 4.0 * std::pow(light_sphere.radius * M_PI, 2.0);
-
-            bool trace_end = false;
-
-            while (!trace_end)
-            {
-                if (std::max(current_flux.x, std::max(current_flux.y, current_flux.z)) <= 0.0) break;
-
-                Intersection intersect_data;
-                if (!intersect_scene(current_ray, &intersect_data)) break;
-                const Sphere& obj = spheres[intersect_data.object_id];
-                // 物体に対する入射方向が表か裏かを確認する
-                const Vec orienting_normal = dot(intersect_data.hitpoint.normal, current_ray.dir) < 0.0
-                                                 ? intersect_data.hitpoint.normal            // 物体外から入射
-                                                 : (-1.0 * intersect_data.hitpoint.normal);  // 物体中から入射
-
-                switch (obj.reflection_type)
+                if (fabs(w.x) > 0.1)
                 {
-                    case edupt::REFLECTION_TYPE_DIFFUSE:
+                    u = normalize(cross(Vec(0.0, 1.0, 0.0), w));
+                }
+                else
+                {
+                    u = normalize(cross(Vec(1.0, 0.0, 0.0), w));
+                }
+                v = cross(w, u);
+
+                Vec light_dir = cosine_sampling(w, u, v, sampler01);
+
+                Ray current_ray(source_pos, light_dir);
+
+                Color current_flux = light_sphere.emission * 4.0 * std::pow(light_sphere.radius * M_PI, 2.0);
+
+                bool trace_end = false;
+                int depth = 0;
+
+                while (!trace_end)
+                {
+                    if (std::max(current_flux.x, std::max(current_flux.y, current_flux.z)) <= 0.0) break;
+
+                    Intersection intersect_data;
+                    if (!intersect_scene(current_ray, &intersect_data)) break;
+                    const Sphere& obj = spheres[intersect_data.object_id];
+                    // 物体に対する入射方向が表か裏かを確認する
+                    const Vec orienting_normal = dot(intersect_data.hitpoint.normal, current_ray.dir) < 0.0
+                                                     ? intersect_data.hitpoint.normal  // 物体外から入射
+                                                     : (-1.0 * intersect_data.hitpoint.normal);  // 物体中から入射
+                    depth++;
+                    switch (obj.reflection_type)
                     {
-                        PointMap::ResultQueue result_queue;
-
-                        PointMap::Query query(intersect_data.hitpoint.position, orienting_normal, gather_radius,
-                                              gahter_max_photon_num);
-                        point_map->SearchNearest(&result_queue, query);
-                        // キューからフォトンを取り出しvectorに格納する
-                        std::vector<PointMap::ElementForQueue> points;
-                        points.reserve(result_queue.size());
-
-                        //                        if (result_queue.size() > 0) std::cout << result_queue.size();
-                        while (!result_queue.empty())
+                        case edupt::REFLECTION_TYPE_DIFFUSE:
                         {
-                            PointMap::ElementForQueue p = result_queue.top();
-                            result_queue.pop();
-                            points.push_back(p);
-                            //                            max_distance2 = std::max(max_distance2, p.distance2);
-                        }
-
-                        for (auto& point : points)
-                        {
-                            if ((dot(point.point->intersection.hitpoint.normal, intersect_data.hitpoint.normal) > 1e-3))
+                            if (depth > 0)  // add contribution (depth == 0 => direct illumination)
                             {
-                                if (point.point->photon_count == 0)
-                                {
-                                    point.point->photon_radius_2 =
-                                        (intersect_data.hitpoint.position - point.point->position).length_squared();
-                                    point.point->accumulated_flux =
-                                        point.point->accumulated_flux + (multiply(obj.color, current_flux) / M_PI);
+                                typename PointMap::ResultQueue result_queue;
 
-                                    point.point->photon_count++;
+                                typename PointMap::Query query(intersect_data.hitpoint.position, orienting_normal,
+                                                               gather_radius, gahter_max_photon_num);
+                                point_map->SearchNearest(&result_queue, query);
+                                // キューからフォトンを取り出しvectorに格納する
+                                std::vector<typename PointMap::ElementForQueue> points;
+                                points.reserve(result_queue.size());
+
+                                //                        if (result_queue.size() > 0) std::cout <<
+                                result_queue.size(); while (!result_queue.empty())
+                                {
+                                    typename PointMap::ElementForQueue p = result_queue.top();
+                                    result_queue.pop();
+                                    points.push_back(p);
+                                    //                            max_distance2 = std::max(max_distance2,
+                                    // p.distance2);
                                 }
-                                else
-                                {
-                                    if (point.distance2 < point.point->photon_radius_2)
-                                    {
-                                        const int N = point.point->photon_count;
-                                        const int M = 1;
 
-                                        double g2 = (N + Alpha * M) / (N + M);
-                                        point.point->photon_radius_2 = point.point->photon_radius_2 * g2;
+                                for (auto& point : points)
+                                {
+                                    if ((dot(point.point->intersection.hitpoint.normal,
+                                             intersect_data.hitpoint.normal) > 1e-3) &&
+                                        point.distance2 <= point.point->photon_radius_2)
+                                    {
+                                        double g;
+                                        if (point.point->photon_count != 0)
+                                        {
+                                            g = (point.point->photon_count * Alpha + Alpha) /
+                                                (point.point->photon_count * Alpha + 1.0);
+                                        }
+                                        else
+                                        {
+                                            g = 1;
+                                        }
+                                        point.point->photon_radius_2 = point.point->photon_radius_2 * g;
                                         point.point->photon_count++;
                                         // point.point->accumulated_flux =
                                         //     obj.emission + (point.point->accumulated_flux +
                                         //                     multiply(point.point->weight, current_flux) / M_PI) *
                                         //                        g;
-                                        point.point->accumulated_flux = (point.point->accumulated_flux +
-                                                                         (multiply(obj.color, current_flux) / M_PI)) *
-                                                                        g2;
+                                        point.point->accumulated_flux =
+                                            (point.point->accumulated_flux + multiply(obj.color, current_flux) /
+                                            M_PI) * g;
                                     }
                                 }
                             }
-                        }
 
-                        // A Practical Guide to Global Illumination using Photon Mapsとは異なるが
-                        // RGBの平均値を反射確率とする。
-                        // TODO: Depthに応じて上げたい
-                        const double probability = std::max(obj.color.x,std::max(obj.color.y,obj.color.z));
- //                       const double probability = (obj.color.x + obj.color.y + obj.color.z) / 3;
-                        if (probability > sampler01.sample())
-                        {
-                            // 反射
-                            // orienting_normalの方向を基準とした正規直交基底(w, u,
-                            // v)を作り。この基底に対する半球内で次のレイを飛ばす。
-                            Vec diffuse_w, diffuse_u, diffuse_v;
-                            diffuse_w = orienting_normal;
-                            if (fabs(diffuse_w.x) > 0.1)
+                            // A Practical Guide to Global Illumination using Photon Mapsとは異なるが
+                            // RGBの平均値を反射確率とする。
+                            // TODO: Depthに応じて上げたい
+                            const double probability = (obj.color.x + obj.color.y + obj.color.z) / 3;
+                            if (probability > sampler01.sample())
                             {
-                                diffuse_u = normalize(cross(Vec(0.0, 1.0, 0.0), diffuse_w));
+                                // 反射
+                                // orienting_normalの方向を基準とした正規直交基底(w, u,
+                                // v)を作り。この基底に対する半球内で次のレイを飛ばす。
+                                Vec diffuse_w, diffuse_u, diffuse_v;
+                                diffuse_w = orienting_normal;
+                                if (fabs(diffuse_w.x) > 0.1)
+                                {
+                                    diffuse_u = normalize(cross(Vec(0.0, 1.0, 0.0), diffuse_w));
+                                }
+                                else
+                                {
+                                    diffuse_u = normalize(cross(Vec(1.0, 0.0, 0.0), diffuse_w));
+                                }
+                                diffuse_v = cross(diffuse_w, diffuse_u);
+                                Vec dir = cosine_sampling(diffuse_w, diffuse_u, diffuse_v, sampler01);
+
+                                current_ray = Ray(intersect_data.hitpoint.position, dir);
+                                current_flux = multiply(current_flux, obj.color) / probability;
                             }
                             else
-                            {
-                                diffuse_u = normalize(cross(Vec(1.0, 0.0, 0.0), diffuse_w));
+                            {  // 吸収
+                                trace_end = true;
                             }
-                            diffuse_v = cross(diffuse_w, diffuse_u);
-                            Vec dir = cosine_sampling(diffuse_w, diffuse_u, diffuse_v, sampler01);
-
-                            current_ray = Ray(intersect_data.hitpoint.position, dir);
-                            current_flux = multiply(current_flux, obj.color) / probability;
                         }
-                        else
-                        {  // 吸収
-                            trace_end = true;
-                        }
-                    }
-                    break;
-                    case edupt::REFLECTION_TYPE_SPECULAR:
-                    {
-                        // 完全鏡面
-                        current_ray = Ray(intersect_data.hitpoint.position,
-                                          reflection(current_ray.dir, intersect_data.hitpoint.normal));
-                        current_flux = multiply(current_flux, obj.color);
-                    }
-                    break;
-                    case edupt::REFLECTION_TYPE_REFRACTION:
-                    {
-                        // 屈折
-                        Ray reflection_ray = Ray(intersect_data.hitpoint.position,
-                                                 reflection(current_ray.dir, intersect_data.hitpoint.normal));
-                        // レイの屈折方向がオブジェクトの内側方向か外側方向かを確認する
-                        const bool is_into = dot(intersect_data.hitpoint.normal, orienting_normal) >
-                                             0.0;  // レイがオブジェクトから出るのか、入るのか
-
-                        // Snellの法則
-                        const double nc = 1.0;  // 真空の屈折率
-                        // edupt::kIor オブジェクトの屈折率
-                        const double nt = edupt::kIor;  // オブジェクトの屈折率
-                        const double nnt = is_into ? nc / nt : nt / nc;
-                        const double ddn = dot(current_ray.dir, orienting_normal);
-                        const double cos2t = 1.0 - nnt * nnt * (1.0 - ddn * ddn);
-
-                        if (cos2t < 0.0)
-                        {  // 全反射
-                            current_ray = reflection_ray;
+                        break;
+                        case edupt::REFLECTION_TYPE_SPECULAR:
+                        {
+                            // 完全鏡面
+                            current_ray =
+                                Ray(intersect_data.hitpoint.position,
+                                    current_ray.dir - intersect_data.hitpoint.normal * 2.0 *
+                                                          dot(intersect_data.hitpoint.normal, current_ray.dir));
                             current_flux = multiply(current_flux, obj.color);
-                            continue;
                         }
-                        // 屈折していく方向
-                        Vec tdir =
-                            normalize(current_ray.dir * nnt - intersect_data.hitpoint.normal * (is_into ? 1.0 : -1.0) *
-                                                                  (ddn * nnt + std::sqrt(cos2t)));
+                        break;
+                        case edupt::REFLECTION_TYPE_REFRACTION:
+                        {
+                            // 屈折
+                            Ray reflection_ray =
+                                Ray(intersect_data.hitpoint.position,
+                                    current_ray.dir - intersect_data.hitpoint.normal * 2.0 *
+                                                          dot(intersect_data.hitpoint.normal, current_ray.dir));
+                            // レイの屈折方向がオブジェクトの内側方向か外側方向かを確認する
+                            const bool is_into = dot(intersect_data.hitpoint.normal, orienting_normal) >
+                                                 0.0;  // レイがオブジェクトから出るのか、入るのか
 
-                        // SchlickによるFresnelの反射係数の近似
-                        const double a = nt - nc, b = nt + nc;
-                        const double R0 = (a * a) / (b * b);
-                        const double c = 1.0 - (is_into ? -ddn : dot(tdir, intersect_data.hitpoint.normal));
-                        const double Re = R0 + (1.0 - R0) * pow(c, 5.0);
-                        const double Tr = 1.0 - Re;  // 屈折光の運ぶ光の量
-                        const double probability = Re;
+                            // Snellの法則
+                            const double nc = 1.0;  // 真空の屈折率
+                            // edupt::kIor オブジェクトの屈折率
+                            const double nnt = is_into ? nc / edupt::kIor : edupt::kIor / nc;
+                            const double ddn = dot(current_ray.dir, orienting_normal);
+                            const double cos2t = 1.0 - nnt * nnt * (1.0 - ddn * ddn);
 
-                        // 屈折と反射のどちらか一方を追跡する。
-                        // ロシアンルーレットで決定する。
-                        if (sampler01.sample() < probability)
-                        {  // 反射
-                            current_ray = reflection_ray;
-                            // Fresnel係数Reを乗算し、ロシアンルーレット確率prob.で割る。
-                            // 今、prob.=Reなので Re / prob. = 1.0 となる。
-                            // よって、current_flux = Multiply(current_flux, obj.color) * Re / probability;
-                            // が以下の式になる。 屈折の場合も同様。
-                            current_flux = multiply(current_flux, obj.color);
-                            continue;
+                            if (cos2t < 0.0)
+                            {  // 全反射
+                                current_ray = reflection_ray;
+                                current_flux = multiply(current_flux, obj.color);
+                                continue;
+                            }
+                            // 屈折していく方向
+                            Vec tdir = normalize(current_ray.dir * nnt - intersect_data.hitpoint.normal *
+                                                                             (is_into ? 1.0 : -1.0) *
+                                                                             (ddn * nnt + std::sqrt(cos2t)));
+
+                            // SchlickによるFresnelの反射係数の近似
+                            const double a = edupt::kIor - nc, b = edupt::kIor + nc;
+                            const double R0 = (a * a) / (b * b);
+                            const double c = 1.0 - (is_into ? -ddn : dot(tdir, intersect_data.hitpoint.normal));
+                            const double Re = R0 + (1.0 - R0) * pow(c, 5.0);
+                            const double Tr = 1.0 - Re;  // 屈折光の運ぶ光の量
+                            const double probability = Re;
+
+                            // 屈折と反射のどちらか一方を追跡する。
+                            // ロシアンルーレットで決定する。
+                            if (sampler01.sample() < probability)
+                            {  // 反射
+                                current_ray = reflection_ray;
+                                // Fresnel係数Reを乗算し、ロシアンルーレット確率prob.で割る。
+                                // 今、prob.=Reなので Re / prob. = 1.0 となる。
+                                // よって、current_flux = Multiply(current_flux, obj.color) * Re / probability;
+                                // が以下の式になる。 屈折の場合も同様。
+                                current_flux = multiply(current_flux, obj.color);
+                                continue;
+                            }
+                            else
+                            {  // 屈折
+                                current_ray = Ray(intersect_data.hitpoint.position, tdir);
+                                current_flux = multiply(current_flux, obj.color);
+                                continue;
+                            }
                         }
-                        else
-                        {  // 屈折
-                            current_ray = Ray(intersect_data.hitpoint.position, tdir);
-                            current_flux = multiply(current_flux, obj.color);
-                            continue;
-                        }
+
+                        break;
                     }
-
-                    break;
                 }
             }
-        }
+
 
         void create_point(const Ray& ray, ValueSampler<double>& sampler01, const int depth, double weight,
                           PointMap* point_map, int index)

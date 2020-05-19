@@ -25,7 +25,6 @@ inline const Vec cross(const Vec &v1, const Vec &v2)
 }
 
 std::ostream &operator<<(std::ostream &stream, const Vec &value)
-
 {
     stream << value.x << "," << value.y << "," << value.z;
     return stream;

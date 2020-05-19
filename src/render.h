@@ -10,7 +10,8 @@
 
 namespace edupt
 {
-    int render_dof(const int width, const int height, const int samples, const int supersamples, double focus, double aperture)
+    int render_dof(const int width, const int height, const int samples, const int supersamples, double focus,
+                   double aperture)
     {
         // カメラ位置
         const Vec camera_position = Vec(50.0, 52.0, 220.0);
@@ -44,7 +45,8 @@ namespace edupt
         {
             std::cerr << "Rendering (y = " << y << ") " << (100.0 * y / (height - 1)) << "%" << std::endl;
 
-            Random rnd(y + 1);
+//            Random rnd(y + 1);          
+            ValueSampler<double> rnd(0, 1);
             for (int x = 0; x < width; x++)
             {
                 const int image_index = (height - y - 1) * width + x;
@@ -57,8 +59,11 @@ namespace edupt
                         // 一つのサブピクセルあたりsamples回サンプリングする
                         for (int s = 0; s < samples; s++)
                         {
+                            // accumulated_radiance =
+                            //     accumulated_radiance + radiance(camera.get_ray(x, y, sx, sy), &rnd, 0) / samples /
+                            //                                (supersamples * supersamples);
                             accumulated_radiance =
-                                accumulated_radiance + radiance(Ray(camera.get_ray(x, y, sx, sy)), &rnd, 0) / samples /
+                                accumulated_radiance + radiance_loop(camera.get_ray(x, y, sx, sy), &rnd) / samples /
                                                            (supersamples * supersamples);
                         }
                         image[image_index] = image[image_index] + accumulated_radiance;
@@ -99,7 +104,9 @@ namespace edupt
         {
             std::cerr << "Rendering (y = " << y << ") " << (100.0 * y / (height - 1)) << "%" << std::endl;
 
-            Random rnd(y + 1);
+//            Random rnd(y + 1);
+            ValueSampler<double> rnd(0, 1);
+
             for (int x = 0; x < width; x++)
             {
                 const int image_index = (height - y - 1) * width + x;
@@ -121,7 +128,7 @@ namespace edupt
                             // レイを飛ばす方向
                             const Vec dir = normalize(screen_position - camera_position);
 
-                            accumulated_radiance = accumulated_radiance + radiance(Ray(camera_position, dir), &rnd, 0) /
+                            accumulated_radiance = accumulated_radiance + radiance_loop(Ray(camera_position, dir), &rnd) /
                                                                               samples / (supersamples * supersamples);
                         }
                         image[image_index] = image[image_index] + accumulated_radiance;
@@ -131,7 +138,7 @@ namespace edupt
         }
 
         // 出力
-        save_ppm_file(std::string("image.ppm"), image, width, height);
+        save_ppm_file(std::string("image_1.ppm"), image, width, height);
         return 0;
     }
 
