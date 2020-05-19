@@ -359,7 +359,7 @@ namespace photonmap
             Color next_event_est(const Intersection& isect, const Sphere& light, const Vec& orienting_normal,
                                  double weight, ValueSampler<double>& sampler01)
             {
-                auto light_pos = light.position + sphere_sampling(sampler01);
+                auto light_pos = light.position + normalize(sphere_sampling(sampler01)) * (light.radius + EPS);
 
                 // ライトへのベクトル
                 auto light_dir = light_pos - isect.hitpoint.position;
@@ -378,7 +378,7 @@ namespace photonmap
                 auto rad2 = light.radius * light.radius;
 
                 // 寄与が取れる場合.
-                if (dot0 >= 0 && dot1 >= 0 && light_dist2 >= rad2)
+                if (dot0 >= 0 && dot1 > 0 && light_dist2 >= rad2)
                 {
                     Intersection shadow_isect;
                     double shadow_t;
@@ -401,7 +401,7 @@ namespace photonmap
             }
 
             void create_point(const Ray& ray, ValueSampler<double>& sampler01, const int depth, double weight,
-                              PointMap* point_map, int index)
+                              PointMap* point_map, int index, bool is_specular_bounce)
             {
                 Intersection intersection;
                 // シーンと交差判定
@@ -432,6 +432,25 @@ namespace photonmap
                     russian_roulette_probability = 1.0;  // ロシアンルーレット実行しなかった
                 }
 
+                // if (index == 56434 || index == 56435 || index == 56436 || index == 56437 || index == 56114 ||
+                //     index == 55794 || index == 55474 || index == 55475 || index == 56115 || index == 56116 ||
+                //     index == 56117 || index == 55797 || index == 55796 || index == 55795 || index == 55476 ||
+                //     index == 55477 || index == 54834 || index == 55154 || index == 54835 || index == 55155 ||
+                //     index == 54836 || index == 55156 || index == 54837 || index == 55157 || index == 56440 ||
+                //     index == 56439 || index == 56438 || index == 56120 || index == 56119 || index == 55800 ||
+                //     index == 55799 || index == 56118 || index == 55798 || index == 55480 || index == 55479 ||
+                //     index == 55478 || index == 54838 || index == 55158 || index == 54839 || index == 55159 ||
+                //     index == 54840 || index == 55160)
+                // {
+                //     std::cout << index << " " << depth << " " << now_object.reflection_type << now_object.color
+                //               << intersection.object_id << std::endl;
+                // }
+                if (index == 67029)
+                {
+                    std::cout << index << " " << depth << " " << now_object.reflection_type << " " << now_object.color
+                              << " " << intersection.object_id << std::endl;
+                }
+
                 switch (now_object.reflection_type)
                 {
                     // 完全拡散面
@@ -439,9 +458,19 @@ namespace photonmap
                     {
                         auto p_it = imageidx_pointidx[index];
 
-                        emit_container[index] =
-                            emit_container[index] + next_event_est(intersection, spheres[LightID], orienting_normal,
-                                                                   weight / russian_roulette_probability, sampler01);
+                        if (depth == 0 || is_specular_bounce)
+                        {
+                            // if (dot(now_object.emission, now_object.emission) > 0)
+                            // {
+                            //     std::cout << now_object.emission << std::endl;
+                            // }
+                            emit_container[index] = emit_container[index] + weight * now_object.emission;
+                        }
+
+                        // emit_container[index] =
+                        //     emit_container[index] +
+                        //     next_event_est(intersection, spheres[LightID], orienting_normal, weight, sampler01);
+
                         // Not Found
                         if (p_it < 0)
                         {
@@ -476,10 +505,11 @@ namespace photonmap
                     // 完全鏡面
                     case REFLECTION_TYPE_SPECULAR:
                     {
+                        //                        std::cout << index << std::endl;
                         // 完全鏡面なのでレイの反射方向は決定的。
                         // ロシアンルーレットの確率で除算するのは上と同じ。
                         create_point(Ray(hitpoint.position, reflection(ray.dir, hitpoint.normal)), sampler01, depth + 1,
-                                     weight / russian_roulette_probability, point_map, index);
+                                     weight / russian_roulette_probability, point_map, index, true);
                     }
                     break;
 
@@ -498,10 +528,22 @@ namespace photonmap
                         const double cos2t = 1.0 - nnt * nnt * (1.0 - ddn * ddn);
                         if (cos2t < 0.0)
                         {  // 全反射
+                            std::cout << " ALL " << index << " " << depth << " " << now_object.reflection_type << " "
+                                      << now_object.color << " " << intersection.object_id << std::endl;
+
                             create_point(reflection_ray, sampler01, depth + 1, weight / russian_roulette_probability,
-                                         point_map, index);
+                                         point_map, index, is_specular_bounce);
                             return;
                         }
+                        // if (cos2t < 0.01)
+                        // {  // 全反射
+                        //     std::cout << " ALL??? cos2t " << cos2t << " " << index << " " << depth << " "
+                        //               << now_object.reflection_type << " " << now_object.color << " "
+                        //               << intersection.object_id << std::endl;
+                        //     create_point(reflection_ray, sampler01, depth + 1, weight / russian_roulette_probability,
+                        //                  point_map, index, is_specular_bounce);
+                        //     return;
+                        // }
                         // 屈折の方向
                         const Ray refraction_ray =
                             Ray(hitpoint.position, normalize(ray.dir * nnt - hitpoint.normal * (into ? 1.0 : -1.0) *
@@ -521,33 +563,40 @@ namespace photonmap
                         // 一定以上レイを追跡したら屈折と反射のどちらか一方を追跡する。（さもないと指数的にレイが増える）
                         // ロシアンルーレットで決定する。
                         const double probability = 0.25 + 0.5 * Re;
-                        if (depth > 2)
-                        {
-                            if (sampler01.sample() < probability)
-                            {  // 反射
 
-                                create_point(reflection_ray, sampler01, depth + 1,
-                                             weight * Re / (probability * russian_roulette_probability), point_map,
-                                             index);
-                                return;
-                            }
-                            else
-                            {  // 屈折
+                        create_point(reflection_ray, sampler01, depth + 1, weight * Re / russian_roulette_probability,
+                                     point_map, index, true);
+                        create_point(refraction_ray, sampler01, depth + 1, weight * Tr / russian_roulette_probability,
+                                     point_map, index, true);
+                        return;
 
-                                create_point(refraction_ray, sampler01, depth + 1,
-                                             weight * Tr / ((1.0 - probability) * russian_roulette_probability),
-                                             point_map, index);
-                                return;
-                            }
-                        }
-                        else
-                        {  // 屈折と反射の両方を追跡
-                            create_point(reflection_ray, sampler01, depth + 1,
-                                         weight * Re / russian_roulette_probability, point_map, index);
-                            create_point(refraction_ray, sampler01, depth + 1,
-                                         weight * Tr / russian_roulette_probability, point_map, index);
-                            return;
-                        }
+                        //     if (depth > 2)
+                        //     {
+                        //         if (sampler01.sample() < probability)
+                        //         {  // 反射
+
+                        //             create_point(reflection_ray, sampler01, depth + 1,
+                        //                          weight * Re / (probability * russian_roulette_probability),
+                        //                          point_map, index);
+                        //             return;
+                        //         }
+                        //         else
+                        //         {  // 屈折
+
+                        //             create_point(refraction_ray, sampler01, depth + 1,
+                        //                          weight * Tr / ((1.0 - probability) * russian_roulette_probability),
+                        //                          point_map, index);
+                        //             return;
+                        //         }
+                        //     }
+                        //     else
+                        //     {  // 屈折と反射の両方を追跡
+                        //         create_point(reflection_ray, sampler01, depth + 1,
+                        //                      weight * Re / russian_roulette_probability, point_map, index);
+                        //         create_point(refraction_ray, sampler01, depth + 1,
+                        //                      weight * Tr / russian_roulette_probability, point_map, index);
+                        //         return;
+                        // }
                     }
 
                     break;
@@ -661,9 +710,10 @@ namespace photonmap
                 // }
 
                 ValueSampler<double> sampler01(0, 1);
+                sampler01.sample();
 
                 std::cout << "Creating Point..." << std::endl;
-                reset_emit_container();
+                //    reset_emit_container();
 
                 for (int i = 0; i < eye_pass_count; i++)
                 {
@@ -675,17 +725,28 @@ namespace photonmap
                         for (int x = 0; x < width; x++)
                         {
                             const int image_index = (height - y - 1) * width + x;
-                            for (int sy = 0; sy < supersamples; sy++)
+
+                            // for (int sy = 0; sy < supersamples; sy++)
+                            // {
+                            //     for (int sx = 0; sx < supersamples; sx++)
+                            //     {
+                            //         // 一つのサブピクセルあたりsamples回サンプリングする
+                            //         for (int s = 0; s < samples; s++)
+                            //         {
+                            //             create_point(camera.get_ray(x, y, sx, sy), sampler01, 0, 1, &point_map,
+                            //                          image_index, false);
+                            //         }
+                            //     }
+                            // }
+
+                            // 一つのサブピクセルあたりsamples回サンプリングする
+
+                            int sx = sampler01.sample() * 4;
+                            int sy = sampler01.sample() * 4;
+                            for (int s = 0; s < samples; s++)
                             {
-                                for (int sx = 0; sx < supersamples; sx++)
-                                {
-                                    // 一つのサブピクセルあたりsamples回サンプリングする
-                                    for (int s = 0; s < samples; s++)
-                                    {
-                                        create_point(camera.get_ray(x, y, sx, sy), sampler01, 0, 1, &point_map,
-                                                     image_index);
-                                    }
-                                }
+                                create_point(camera.get_ray(x, y, sx, sy), sampler01, 0, 1, &point_map, image_index,
+                                             false);
                             }
                         }
                     }
@@ -701,11 +762,15 @@ namespace photonmap
 
                     std::cout << "Rendering..." << std::endl;
 
-                    for (size_t i = 0; i < PixelCount; i++)
+                    for (size_t p_it = 0; p_it < PixelCount; p_it++)
                     {
-                        image[i] = emit_container[i];
+                        image[p_it] = emit_container[p_it] / ((i + 1));
+
                         //     image[i] = Color();
                     }
+                    const int image_index_sample = (210 - 1) * width + 149;
+
+                    std::cout << image_index_sample << std::endl;
 
                     for (auto node : point_map.GetData())
                     {
@@ -715,9 +780,9 @@ namespace photonmap
                         image[node.index] =
                             image[node.index] + node.weight * node.accumulated_flux *
                                                     (1.0 / (M_PI * node.photon_radius_2 * ((i + 1) * photon_num)));
-                        if (node.index == 5000)
+                        if (node.index == image_index_sample)
                         {
-                            std::cout << node.position << std::endl;
+                            std::cout << image[node.index] << std::endl;
                         }
                     }
 

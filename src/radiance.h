@@ -108,8 +108,10 @@ namespace edupt
 
                 if (cos2t < 0.0)
                 {  // 全反射
-                    incoming_radiance = radiance(reflection_ray, rnd, depth + 1);
-                    weight = now_object.color / russian_roulette_probability;
+                    // incoming_radiance = radiance(reflection_ray, rnd, depth + 1);
+                    // weight = now_object.color / russian_roulette_probability;
+                    incoming_radiance = Color();
+                    weight = Color();
                     break;
                 }
                 // 屈折の方向
