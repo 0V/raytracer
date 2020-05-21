@@ -95,6 +95,7 @@ namespace photonmap
             }
             struct ProgressiveIntersection
             {
+                Color emission;
                 // SHARED
                 Color accumulated_flux;
                 int index;
@@ -118,9 +119,6 @@ namespace photonmap
 
             struct SPPMPixel
             {
-                // UNUSED
-                Color emission;
-
                 // SHARED
                 Color accumulated_flux;
                 int index;
@@ -131,13 +129,12 @@ namespace photonmap
                 Vec position;
                 Color weight;
                 SPPMPixel(Intersection intersection_, const Color& weight_, double photon_radius_2_, int photon_count_,
-                          int index_, const Color& emission_)
+                          int index_)
                     : intersection(intersection_),
                       position(intersection_.hitpoint.position),
                       weight(weight_),
                       photon_radius_2(photon_radius_2_),
-                      index(index_),
-                      emission(emission_)
+                      index(index_)
                 {
                 }
             };
@@ -205,13 +202,15 @@ namespace photonmap
                     const Vec orienting_normal =
                         dot(hitpoint.normal, ray.dir) < 0.0
                             ? hitpoint.normal
-                            : (-1.0 * hitpoint.normal);  // 交差位置の法線（物体からのレイの入出を考慮）
+                            : (-1.0 * hitpoint.normal);
+
+                    // 交差位置の法線（物体からのレイの入出を考慮）
                     // 色の反射率最大のものを得る。ロシアンルーレットで使う。
                     // ロシアンルーレットの閾値は任意だが色の反射率等を使うとより良い。
 
                     if (direct)
                     {
-                        ld_container[index] = ld_container[index] + multiply(weight, now_object.emission);
+//                        ld_container[index] = ld_container[index] + multiply(weight, now_object.emission);
                     }
 
                     direct = now_object.reflection_type != REFLECTION_TYPE_DIFFUSE;
@@ -221,7 +220,7 @@ namespace photonmap
                         // 完全拡散面
                         case REFLECTION_TYPE_DIFFUSE:
                         {
-                            auto est = next_event_est(intersection, spheres[LightID], orienting_normal, *rnd);
+                            auto est = edupt::next_event_est(intersection, spheres[LightID], orienting_normal, *rnd);
 
                             ld_container[index] = ld_container[index] + multiply(weight, est);
                             auto p_it = imageidx_pointidx[index];
@@ -238,8 +237,8 @@ namespace photonmap
                             if (p_it < 0)
                             {
                                 imageidx_pointidx[index] = 1;
-                                point_map->AddData(
-                                    SPPMPixel(intersection, weight, initial_radius_2, 0, index));
+                                point_map->AddData(SPPMPixel(intersection, weight, initial_radius_2, 0, index));
+                                break;
                             }
                             else  // Found Point
                             {
@@ -254,7 +253,6 @@ namespace photonmap
                                         // ld_container[index] = ld_container[index] +
                                         //                         now_object.emission * weight /
                                         //                         russian_roulette_probability;
-
                                         break;
                                     }
                                 }
@@ -842,11 +840,13 @@ namespace photonmap
             //             }
             //             // point_map->AddData(ProgressiveIntersection(intersection, weight /
             //             // russian_roulette_probability,
-            //             //                                            initial_radius_2, 0, index, now_object.emission));
+            //             //                                            initial_radius_2, 0, index,
+            //             now_object.emission));
 
             //             ld_container[index] =
             //                 ld_container[index] +
-            //                 weight * edupt::next_event_est(intersection, spheres[LightID], orienting_normal, sampler01);
+            //                 weight * edupt::next_event_est(intersection, spheres[LightID], orienting_normal,
+            //                 sampler01);
 
             //             auto p_it = imageidx_pointidx[index];
 
@@ -886,7 +886,8 @@ namespace photonmap
             //         {
             //             // 完全鏡面なのでレイの反射方向は決定的。
             //             // ロシアンルーレットの確率で除算するのは上と同じ。
-            //             create_point(Ray(hitpoint.position, reflection(ray.dir, hitpoint.normal)), sampler01, depth + 1,
+            //             create_point(Ray(hitpoint.position, reflection(ray.dir, hitpoint.normal)), sampler01, depth +
+            //             1,
             //                          weight / russian_roulette_probability, point_map, index, true);
             //             return;
             //         }
@@ -897,7 +898,8 @@ namespace photonmap
             //         {
             //             const Ray reflection_ray = Ray(hitpoint.position, reflection(ray.dir, hitpoint.normal));
             //             const bool into =
-            //                 dot(hitpoint.normal, orienting_normal) > 0.0;  // レイがオブジェクトから出るのか、入るのか
+            //                 dot(hitpoint.normal, orienting_normal) > 0.0;  //
+            //                 レイがオブジェクトから出るのか、入るのか
 
             //             // Snellの法則
             //             const double nc = 1.0;   // 真空の屈折率
@@ -922,13 +924,15 @@ namespace photonmap
             //             const double R0 = (a * a) / (b * b);
 
             //             const double c = 1.0 - (into ? -ddn : dot(refraction_ray.dir, hitpoint.normal));
-            //             // 反射方向の光が反射してray.dirの方向に運ぶ割合。同時に屈折方向の光が反射する方向に運ぶ割合。
+            //             //
+            //             反射方向の光が反射してray.dirの方向に運ぶ割合。同時に屈折方向の光が反射する方向に運ぶ割合。
             //             const double Re = R0 + (1.0 - R0) * std::pow(c, 5.0);
             //             // レイの運ぶ放射輝度は屈折率の異なる物体間を移動するとき、屈折率の比の二乗の分だけ変化する。
             //             const double nnt2 = std::pow(into ? nc / nt : nt / nc, 2.0);
             //             const double Tr = (1.0 - Re) * nnt2;  // 屈折方向の光が屈折してray.dirの方向に運ぶ割合
 
-            //             // 一定以上レイを追跡したら屈折と反射のどちらか一方を追跡する。（さもないと指数的にレイが増える）
+            //             //
+            //             一定以上レイを追跡したら屈折と反射のどちらか一方を追跡する。（さもないと指数的にレイが増える）
             //             // ロシアンルーレットで決定する。
             //             const double probability = 0.25 + 0.5 * Re;
 
@@ -937,15 +941,15 @@ namespace photonmap
             //             {  // 反射
 
             //                 create_point(reflection_ray, sampler01, depth + 1,
-            //                              weight * Re / (probability * russian_roulette_probability), point_map, index,
-            //                              true);
+            //                              weight * Re / (probability * russian_roulette_probability), point_map,
+            //                              index, true);
             //             }
             //             else
             //             {  // 屈折
 
             //                 create_point(refraction_ray, sampler01, depth + 1,
-            //                              weight * Tr / ((1.0 - probability) * russian_roulette_probability), point_map,
-            //                              index, false);
+            //                              weight * Tr / ((1.0 - probability) * russian_roulette_probability),
+            //                              point_map, index, false);
             //             }
             //             return;
 
@@ -1145,26 +1149,27 @@ namespace photonmap
                     {
                         image[p_it] = ld_container[p_it] / ((i + 1));
 
-                        //     image[i] = Color();
                     }
                     const int image_index_sample = 49196;
 
                     std::cout << image_index_sample << std::endl;
 
-                    for (auto node : point_map.GetData())
-                    {
-                        // image[node.index] =
-                        //     node.emission + node.weight * node.accumulated_flux *
-                        //                         (1.0 / (M_PI * node.photon_radius_2 * ((i + 1) * photon_num)));
-                        image[node.index] =
-                            image[node.index] + multiply(node.weight, node.accumulated_flux) *
-                                                    (1.0 / (M_PI * node.photon_radius_2 * ((i + 1) * photon_num)));
-                        if (node.index == image_index_sample)
-                        {
-                            std::cout << image[node.index] << std::endl;
-                        }
-                    }
+                    // for (auto node : point_map.GetData())
+                    // {
+                    //     // image[node.index] =
+                    //     //     node.emission + node.weight * node.accumulated_flux *
+                    //     //                         (1.0 / (M_PI * node.photon_radius_2 * ((i + 1) * photon_num)));
+                    //     image[node.index] =
+                    //         image[node.index] + multiply(node.weight, node.accumulated_flux) *
+                    //                                 (1.0 / (M_PI * node.photon_radius_2 * ((i + 1) * photon_num)));
+                    //     if (node.index == image_index_sample)
+                    //     {
+                    //         std::cout << image[node.index] << std::endl;
+                    //     }
+                    // }
 
+
+                    std::cout << image[image_index_sample] << std::endl;
                     //                    image[image_index_sample] = Color(1, 0, 0);
 
                     save_ppm_file(filename + "_" + std::to_string(i) + ".ppm", image, width, height);

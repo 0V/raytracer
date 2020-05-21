@@ -49,22 +49,22 @@ namespace edupt
 
         auto light_normal = normalize(light_pos - light.position);
 
-        auto dot0 = std::abs(dot(orienting_normal, light_dir));
-        auto dot1 = std::abs(dot(light_normal, -1 * light_dir));
-        auto rad2 = light.radius * light.radius;
+        auto dot0 = dot(orienting_normal, light_dir);
+        auto dot1 = dot(light_normal, light_dir);
+        auto radius2 = light.radius * light.radius;
 
         Intersection shadow_isect;
         Ray shadow_ray(isect.hitpoint.position, light_dir);
         auto hit = intersect_scene(shadow_ray, &shadow_isect);
-        auto hit_light = hit && (shadow_isect.object_id == LightID);
+        auto hit_light = hit && (shadow_isect.object_id == LightID) && dot1 < 0 && dot0 > 0;
         if (hit_light)
         {
-            auto G = (dot0 * dot1) / light_dist2;
-            auto pdf = 1.0 / (4.0 * M_PI * rad2);
-
-            return multiply(spheres[isect.object_id].color,
-                            multiply(light.emission, (spheres[isect.object_id].color / M_PI))) *
-                   G / pdf;
+            auto G = (std::abs(dot0) * std::abs(dot1)) / light_dist2;
+            auto pdf = 1.0 / (4.0 * M_PI * radius2);
+            auto fs = spheres[isect.object_id].color / M_PI;
+            // Ij←Ij+α×Le(xl→x)fs(x,ω⃗ l,ω⃗ o)G(xl↔x)/pA(xl)
+            // Le より先
+            return multiply(light.emission, fs) * G / pdf;
         }
         return Color();
     }
@@ -267,10 +267,6 @@ namespace edupt
                 dot(hitpoint.normal, ray.dir) < 0.0
                     ? hitpoint.normal
                     : (-1.0 * hitpoint.normal);  // 交差位置の法線（物体からのレイの入出を考慮）
-            // 色の反射率最大のものを得る。ロシアンルーレットで使う。
-            // ロシアンルーレットの閾値は任意だが色の反射率等を使うとより良い。
-            double russian_roulette_probability =
-                std::max(now_object.color.x, std::max(now_object.color.y, now_object.color.z));
 
             if (direct)
             {
@@ -278,18 +274,6 @@ namespace edupt
             }
 
             direct = now_object.reflection_type != REFLECTION_TYPE_DIFFUSE;
-
-            // 反射回数が一定以上になったらロシアンルーレットの確率を急上昇させる。（スタックオーバーフロー対策）
-            if (depth > MaxDepth) russian_roulette_probability *= std::pow(0.5, depth - MaxDepth);
-
-            // ロシアンルーレットを実行し追跡を打ち切るかどうかを判断する。
-            // ただしDepth回の追跡は保障する。
-            if (depth > kDepth)
-            {
-                if (rnd->sample() >= russian_roulette_probability) break;
-            }
-            else
-                russian_roulette_probability = 1.0;  // ロシアンルーレット実行しなかった
 
             switch (now_object.reflection_type)
             {
@@ -316,7 +300,9 @@ namespace edupt
                     Vec dir = normalize((u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1.0 - r2)));
 
                     ray = Ray(hitpoint.position, dir);
-                    weight = multiply(weight, now_object.color / russian_roulette_probability);
+                    weight = multiply(weight, now_object.color);
+
+                    goto hoge;
                 }
                 break;
 
@@ -324,7 +310,7 @@ namespace edupt
                 case REFLECTION_TYPE_SPECULAR:
                 {
                     ray = Ray(hitpoint.position, ray.dir - hitpoint.normal * 2.0 * dot(hitpoint.normal, ray.dir));
-                    weight = multiply(weight, now_object.color / russian_roulette_probability);
+                    weight = multiply(weight, now_object.color);
                 }
                 break;
 
@@ -346,7 +332,7 @@ namespace edupt
                     if (cos2t < 0.0)
                     {  // 全反射
                         ray = reflection_ray;
-                        weight = multiply(weight, now_object.color / russian_roulette_probability);
+                        weight = multiply(weight, now_object.color);
                         break;
                     }
 
@@ -377,18 +363,37 @@ namespace edupt
                     if (rnd->sample() < probability)
                     {  // 反射
                         ray = reflection_ray;
-                        weight = multiply(weight, now_object.color * Re / (probability * russian_roulette_probability));
+                        weight = multiply(weight, now_object.color * Re / (probability));
                     }
                     else
                     {
                         ray = refraction_ray;
-                        weight = multiply(weight,
-                                          now_object.color * Tr / ((1.0 - probability) * russian_roulette_probability));
+                        weight = multiply(weight, now_object.color * Tr / ((1.0 - probability)));
                     }
                 }
                 break;
             }
+            // 色の反射率最大のものを得る。ロシアンルーレットで使う。
+            // ロシアンルーレットの閾値は任意だが色の反射率等を使うとより良い。
+            double russian_roulette_probability =
+                std::max(now_object.color.x, std::max(now_object.color.y, now_object.color.z));
+
+            // 反射回数が一定以上になったらロシアンルーレットの確率を急上昇させる。（スタックオーバーフロー対策）
+            if (depth >= MaxDepth) russian_roulette_probability *= std::pow(0.5, depth - MaxDepth);
+
+            // ロシアンルーレットを実行し追跡を打ち切るかどうかを判断する。
+            // ただしDepth回の追跡は保障する。
+            if (depth >= kDepth)
+            {
+                if (rnd->sample() >= russian_roulette_probability) break;
+            }
+            else
+                russian_roulette_probability = 1.0;  // ロシアンルーレット実行しなかった
+
+            weight = weight / russian_roulette_probability;
         }
+
+    hoge:;
 
         return rad;
     }
