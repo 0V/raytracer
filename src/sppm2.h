@@ -66,7 +66,6 @@ namespace photonmap
             int valid_photon = 0;
 
             std::array<Color, PixelCount> ld_container;
-            std::array<Color, PixelCount> tau_container;
 
             std::random_device seed_gen_;
             std::mt19937 engine_ = std::mt19937(seed_gen_());
@@ -555,73 +554,6 @@ namespace photonmap
                     }
 
                     create_photon(spheres[LightID], sampler01, point_map, gather_radius, gahter_max_photon_num);
-                }
-            };
-
-            void update_photons_with_render(int photon_count, PointMap* point_map, double gather_radius,
-                                            double gahter_max_photon_num, int width, int height, double spp,
-                                            std::string filename)
-            {
-                ValueSampler<double> sampler01(0, 1);
-                double max_radius = 0;
-                int devide_num = 1;
-                int tmp_devide_num = photon_count;
-                while (tmp_devide_num > 10000)
-                {
-                    devide_num *= 100;
-                    tmp_devide_num /= 100;
-                    /* code */
-                }
-
-                // Color* images[10];
-
-                // for (size_t p_it = 0; p_it < PixelCount; p_it++)
-                // {
-                //     images[i][p_it] = ld_container[p_it] / (i + 1));
-                // }
-
-                Color* image = new Color[width * height];
-                for (size_t i = 0; i < photon_count; i++)
-                {
-                    create_photon(spheres[LightID], sampler01, point_map, gather_radius, gahter_max_photon_num);
-
-                    if (i % devide_num == 0)
-                    {
-                        // double max_radius_2 = 0;
-                        // for (const auto& p : point_map->GetData())
-                        // {
-                        //     max_radius_2 = std::max(max_radius_2, p.photon_radius_2);
-                        // }
-                        // max_radius = std::sqrt(max_radius_2);
-                        std::cout << "Photon Tracing (i = " << i << ") " << (100.0 * i / (photon_count - 1)) << "%"
-                                  << std::endl;
-                        //                    std::cout << "Rmax = " << max_radius << std::endl;
-
-                        if (i % (devide_num * 10) == 0)
-                        {
-                            std::cout << "Rendering..." << std::endl;
-                            for (size_t i = 0; i < width * height; i++)
-                            {
-                                image[i] = Color();
-                            }
-                            for (auto node : point_map->GetData())
-                            {
-                                // if (node.photon_count > 0)
-                                // {
-                                image[node.index] =
-                                    image[node.index] + (multiply(node.weight, node.accumulated_flux) *
-                                                         (1.0 / (M_PI * node.photon_radius_2 * (i + 1)))) /
-                                                            spp;
-                                //                            }
-                            }
-
-                            save_ppm_file(filename + "_" + std::to_string(i) + ".ppm", image, width, height);
-                            save_hdr_file(filename + "_" + std::to_string(i) + ".hdr", image, width, height);
-                            //                    save_hdr_file(filename + "_" + std::to_string(i) + ".hdr", image,
-                            //                    width, height);
-                            std::cout << "Done Rendering" << std::endl;
-                        }
-                    }
                 }
             };
 

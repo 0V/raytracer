@@ -322,8 +322,6 @@ namespace photonmap
                 Ray current_ray(source_pos, light_dir);
 
                 Color current_flux = light_sphere.emission * 4.0 * std::pow(light_sphere.radius * M_PI, 2.0);
-                std::cout << current_flux << std::endl;
-
                 bool trace_end = false;
                 int depth = 0;
 
@@ -353,9 +351,7 @@ namespace photonmap
                                 // キューからフォトンを取り出しvectorに格納する
                                 std::vector<typename PointMap::ElementForQueue> points;
                                 points.reserve(result_queue.size());
-
-                                //                        if (result_queue.size() > 0) std::cout <<
-                                result_queue.size(); while (!result_queue.empty())
+ while (!result_queue.empty())
                                 {
                                     typename PointMap::ElementForQueue p = result_queue.top();
                                     result_queue.pop();
@@ -691,7 +687,6 @@ namespace photonmap
                         }
                         for (auto node : point_map->GetData())
                         {
-                            std::cout << node.emission + node.weight * node.accumulated_flux<< std::endl;
                             // if (node.photon_count > 0)
                             // {
                             image[node.index] = image[node.index] +

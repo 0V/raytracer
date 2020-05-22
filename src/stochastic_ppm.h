@@ -25,7 +25,7 @@
 
 namespace photonmap
 {
-    namespace sppm
+    namespace sppm_miss
     {
         using namespace edupt;
         using namespace photonmap::utility;
