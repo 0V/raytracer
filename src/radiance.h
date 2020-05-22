@@ -301,8 +301,6 @@ namespace edupt
 
                     ray = Ray(hitpoint.position, dir);
                     weight = multiply(weight, now_object.color);
-
-                    goto hoge;
                 }
                 break;
 
@@ -393,7 +391,6 @@ namespace edupt
             weight = weight / russian_roulette_probability;
         }
 
-    hoge:;
 
         return rad;
     }

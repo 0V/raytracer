@@ -322,6 +322,7 @@ namespace photonmap
                 Ray current_ray(source_pos, light_dir);
 
                 Color current_flux = light_sphere.emission * 4.0 * std::pow(light_sphere.radius * M_PI, 2.0);
+                std::cout << current_flux << std::endl;
 
                 bool trace_end = false;
                 int depth = 0;
@@ -690,6 +691,7 @@ namespace photonmap
                         }
                         for (auto node : point_map->GetData())
                         {
+                            std::cout << node.emission + node.weight * node.accumulated_flux<< std::endl;
                             // if (node.photon_count > 0)
                             // {
                             image[node.index] = image[node.index] +

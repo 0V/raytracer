@@ -17,8 +17,8 @@ int main(int argc, char **argv)
     // edupt::render(640, 480, 4, 2);
     constexpr int width = 320;
     constexpr int height = 240;
-    int samples = 1;
-    int supersamples = 1;
+    int samples = 100;
+    int supersamples = 8;
     int photon_num = 50000;
     int gather_photon_radius = 32;
     int gahter_max_photon_num = 64;
@@ -26,8 +26,8 @@ int main(int argc, char **argv)
 
     int photonmap_num = 10;
     std::stringstream ss;
- //   return edupt::render_dof(width, height, samples, supersamples, 180, 4);
-    return edupt::render(width, height, samples, supersamples);
+    //   return edupt::render_dof(width, height, samples, supersamples, 180, 4);
+//    return edupt::render(width, height, samples, supersamples);
 
     // for (size_t i = 60; i < 200; i = i + 10)
     // {
@@ -75,11 +75,11 @@ int main(int argc, char **argv)
 
     ss << "image_" << scene_name << "_ppm101_" << width << "_" << height << "_" << samples << "_" << supersamples << "_"
        << photon_num << "_" << gather_photon_radius << "_" << gahter_max_photon_num << "_" << photonmap_num;
-   //  return photonmap::progressive2::render(ss.str(), width, height, samples, supersamples, photon_num,
-   //                                         gather_photon_radius, gahter_max_photon_num);
+    //  return photonmap::progressive2::render(ss.str(), width, height, samples, supersamples, photon_num,
+    //                                         gather_photon_radius, gahter_max_photon_num);
 
-   //  return photonmap::progressive::render(ss.str(), width, height, samples, supersamples, photon_num,
-   //                                        gather_photon_radius, gahter_max_photon_num);
+    //  return photonmap::progressive::render(ss.str(), width, height, samples, supersamples, photon_num,
+    //                                        gather_photon_radius, gahter_max_photon_num);
 
     photonmap::sppm::StochasticPpm<width, height> sppm(samples, supersamples);
     return sppm.render(ss.str(), width, height, samples, supersamples, photon_num, gather_photon_radius,
