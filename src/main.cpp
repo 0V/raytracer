@@ -8,6 +8,7 @@
 #include "render.h"
 #include "smallppm_exp.h"
 #include "stochastic_ppm.h"
+#include "sppm2.h"
 
 int main(int argc, char **argv)
 {
@@ -71,7 +72,7 @@ int main(int argc, char **argv)
     photonmap::progressive::InitialRadius = gather_photon_radius;
 
     gahter_max_photon_num = 10000;
-    photon_num = 100000;
+    photon_num = 1000000;
 
     ss << "image_" << scene_name << "_ppm101_" << width << "_" << height << "_" << samples << "_" << supersamples << "_"
        << photon_num << "_" << gather_photon_radius << "_" << gahter_max_photon_num << "_" << photonmap_num;
@@ -81,7 +82,8 @@ int main(int argc, char **argv)
     //  return photonmap::progressive::render(ss.str(), width, height, samples, supersamples, photon_num,
     //                                        gather_photon_radius, gahter_max_photon_num);
 
-    photonmap::sppm::StochasticPpm<width, height> sppm(samples, supersamples);
+//    photonmap::sppm::StochasticPpm<width, height> sppm(samples, supersamples);
+    photonmap::sppm2::StochasticPpm<width, height> sppm(samples, supersamples);
     return sppm.render(ss.str(), width, height, samples, supersamples, photon_num, gather_photon_radius,
                        gahter_max_photon_num, 100);
 

@@ -64,7 +64,7 @@ namespace photonmap
             int valid_photon = 0;
 
             std::array<Color, PixelCount> ld_container;
-            std::array<double, PixelCount> phi_container;
+            std::array<Color, PixelCount> phi_container;
             std::array<Color, PixelCount> tau_container;
 
             std::random_device seed_gen_;
@@ -654,7 +654,9 @@ namespace photonmap
                 std::cout << "Creating Point..." << std::endl;
                 //    reset_ld_container();
 
-                for (int i = 0; i < eye_pass_count; i++)
+                Color images[10][PixelCount];
+
+                for (int i = 0; i < 10; i++)
                 {
                     for (int y = 0; y < height; y++)
                     {
@@ -740,7 +742,7 @@ namespace photonmap
 
                     for (size_t p_it = 0; p_it < PixelCount; p_it++)
                     {
-                        image[p_it] = ld_container[p_it] / ((i + 1));
+                        images[i][p_it] = ld_container[p_it] / ((i + 1));
                     }
                     const int image_index_sample = 49196;
 
@@ -759,11 +761,19 @@ namespace photonmap
                     {
                         int p_it = node.index;
                         // auto Np = valid_photon;
-                        image[p_it] = image[p_it] + tau_container[p_it] * (1.0 / (M_PI * node.photon_radius_2 * Np));
+                        images[i][p_it]= images[i][p_it] + tau_container[p_it] * (1.0 / (M_PI * node.photon_radius_2 * Np));
                     }
+
+                    for (size_t i = 0; i < 10; i++)
+                    {
+                        
+                    }
+                    
 
                     std::cout << image[image_index_sample] << std::endl;
                     //                    image[image_index_sample] = Color(1, 0, 0);
+
+
 
                     save_ppm_file(filename + "_" + std::to_string(i) + ".ppm", image, width, height);
                     save_hdr_file(filename + "_" + std::to_string(i) + ".hdr", image, width, height);
