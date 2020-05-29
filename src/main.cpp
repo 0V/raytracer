@@ -6,12 +6,17 @@
 #include "progressive_photonmapping.h"
 #include "raw_ppm.h"
 #include "render.h"
+#include "simple-mlt.h"
+#include "simple-mlt-raw.h"
 #include "smallppm_exp.h"
-#include "stochastic_ppm.h"
 #include "sppm2.h"
+#include "stochastic_ppm.h"
 
 int main(int argc, char **argv)
 {
+   // return simple_mlt_raw::render();
+    return simple_mlt::render();
+
     std::cout << "Path tracing renderer: edupt base raytracer" << std::endl << std::endl;
 
     // 640x480の画像、(2x2) * 4 sample / pixel
@@ -28,7 +33,7 @@ int main(int argc, char **argv)
     int photonmap_num = 10;
     std::stringstream ss;
     //   return edupt::render_dof(width, height, samples, supersamples, 180, 4);
-//    return edupt::render(width, height, samples, supersamples);
+    //    return edupt::render(width, height, samples, supersamples);
 
     // for (size_t i = 60; i < 200; i = i + 10)
     // {
@@ -79,10 +84,10 @@ int main(int argc, char **argv)
     //  return photonmap::progressive2::render(ss.str(), width, height, samples, supersamples, photon_num,
     //                                         gather_photon_radius, gahter_max_photon_num);
 
-     return photonmap::progressive::render(ss.str(), width, height, samples, supersamples, photon_num,
-                                           gather_photon_radius, gahter_max_photon_num);
+    return photonmap::progressive::render(ss.str(), width, height, samples, supersamples, photon_num,
+                                          gather_photon_radius, gahter_max_photon_num);
 
-//    photonmap::sppm::StochasticPpm<width, height> sppm(samples, supersamples);
+    //    photonmap::sppm::StochasticPpm<width, height> sppm(samples, supersamples);
     photonmap::sppm2::StochasticPpm<width, height> sppm(samples, supersamples);
     return sppm.render(ss.str(), width, height, samples, supersamples, photon_num, gather_photon_radius,
                        gahter_max_photon_num, 100);
